@@ -1,0 +1,5 @@
+{
+  "name": "Khoa Nội Manager",
+  "description": "Ứng dụng quản lý công việc Khoa Nội, theo dõi Holter và lịch trực.",
+  "requestFramePermissions": []
+}
