@@ -1,7 +1,5 @@
 
-const CACHE_NAME = 'khoa-noi-v4';
-const OFFLINE_URL = './index.html';
-
+const CACHE_NAME = 'khoa-noi-v5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -11,7 +9,6 @@ const ASSETS_TO_CACHE = [
   'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];
 
-// Cài đặt: Lưu trữ các tài nguyên tĩnh quan trọng
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
@@ -22,7 +19,6 @@ self.addEventListener('install', event => {
   self.skipWaiting();
 });
 
-// Kích hoạt: Xóa cache cũ
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(cacheNames => {
@@ -39,9 +35,7 @@ self.addEventListener('activate', event => {
   return self.clients.claim();
 });
 
-// Fetch: Chiến lược Stale-While-Revalidate
 self.addEventListener('fetch', event => {
-  // Bỏ qua các yêu cầu không phải GET hoặc yêu cầu đến API (để App tự xử lý offline)
   if (event.request.method !== 'GET' || event.request.url.includes('/macros/s/')) {
     return;
   }
@@ -50,15 +44,11 @@ self.addEventListener('fetch', event => {
     caches.open(CACHE_NAME).then(cache => {
       return cache.match(event.request).then(cachedResponse => {
         const fetchedResponse = fetch(event.request).then(networkResponse => {
-          // Lưu bản sao mới vào cache nếu yêu cầu thành công
           if (networkResponse && networkResponse.status === 200) {
             cache.put(event.request, networkResponse.clone());
           }
           return networkResponse;
-        }).catch(() => {
-          // Nếu mạng lỗi, dùng cache
-          return cachedResponse;
-        });
+        }).catch(() => cachedResponse);
 
         return cachedResponse || fetchedResponse;
       });
