@@ -15,15 +15,13 @@ root.render(
   </React.StrictMode>
 );
 
-// Đăng ký Service Worker tối ưu cho PWA
+// Đăng ký Service Worker từ root
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' })
-      .then(registration => {
-        console.log('PWA ServiceWorker registered with scope:', registration.scope);
-      })
-      .catch(err => {
-        console.error('PWA ServiceWorker registration failed:', err);
-      });
+    navigator.serviceWorker.register('/sw.js').then(registration => {
+      console.log('PWA ServiceWorker registered');
+    }).catch(err => {
+      console.log('PWA ServiceWorker registration failed: ', err);
+    });
   });
 }
