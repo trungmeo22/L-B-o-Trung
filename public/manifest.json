@@ -4,9 +4,10 @@
   "name": "Quản lý Khoa Nội - Bệnh viện",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/3063/3063116.png",
+      "src": "/icon.PNG",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
   "start_url": ".",
