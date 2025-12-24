@@ -1,67 +1,54 @@
 
 const CACHE_NAME = 'khoa-noi-v4';
-const OFFLINE_URL = './index.html';
-
 const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  './icon.png',
-  'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/icon.png'
 ];
 
-// Cài đặt: Lưu trữ các tài nguyên tĩnh quan trọng
+// Install Event
 self.addEventListener('install', event => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
-      console.log('SW: Pre-caching assets');
+      console.log('Caching shell assets');
       return cache.addAll(ASSETS_TO_CACHE);
     })
   );
-  self.skipWaiting();
 });
 
-// Kích hoạt: Xóa cache cũ
+// Activate Event
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(cacheNames => {
+    caches.keys().then(keys => {
       return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('SW: Removing old cache', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
+        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
       );
     })
   );
   return self.clients.claim();
 });
 
-// Fetch: Chiến lược Stale-While-Revalidate
+// Fetch Event - Quan trọng để trình duyệt xác nhận PWA
 self.addEventListener('fetch', event => {
-  // Bỏ qua các yêu cầu không phải GET hoặc yêu cầu đến API (để App tự xử lý offline)
-  if (event.request.method !== 'GET' || event.request.url.includes('/macros/s/')) {
+  // Bỏ qua các request không phải GET hoặc request tới API Google Sheet (để fetch dữ liệu thực tế)
+  if (event.request.method !== 'GET' || event.request.url.includes('script.google.com')) {
     return;
   }
 
   event.respondWith(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.match(event.request).then(cachedResponse => {
-        const fetchedResponse = fetch(event.request).then(networkResponse => {
-          // Lưu bản sao mới vào cache nếu yêu cầu thành công
+    caches.match(event.request).then(cachedResponse => {
+      if (cachedResponse) {
+        // Trả về từ cache nhưng vẫn fetch mới để cập nhật cho lần sau (Stale-While-Revalidate)
+        fetch(event.request).then(networkResponse => {
           if (networkResponse && networkResponse.status === 200) {
-            cache.put(event.request, networkResponse.clone());
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, networkResponse));
           }
-          return networkResponse;
-        }).catch(() => {
-          // Nếu mạng lỗi, dùng cache
-          return cachedResponse;
-        });
-
-        return cachedResponse || fetchedResponse;
-      });
+        }).catch(() => {});
+        return cachedResponse;
+      }
+      return fetch(event.request);
     })
   );
 });

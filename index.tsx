@@ -15,42 +15,15 @@ root.render(
   </React.StrictMode>
 );
 
-// Đăng ký Service Worker với logic bảo mật Origin
+// Đăng ký Service Worker tối ưu cho PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    // Tạo URL tuyệt đối cho sw.js dựa trên vị trí hiện tại của trang web
-    // Việc này ngăn chặn trình duyệt hiểu nhầm origin là https://ai.studio
-    const swUrl = new URL('sw.js', window.location.href).href;
-    
-    navigator.serviceWorker.register(swUrl)
+    navigator.serviceWorker.register('/sw.js', { scope: '/' })
       .then(registration => {
         console.log('PWA ServiceWorker registered with scope:', registration.scope);
-        
-        registration.onupdatefound = () => {
-          const installingWorker = registration.installing;
-          if (installingWorker) {
-            installingWorker.onstatechange = () => {
-              if (installingWorker.state === 'installed') {
-                if (navigator.serviceWorker.controller) {
-                  console.log('New content available, please refresh.');
-                } else {
-                  console.log('Content cached for offline use.');
-                }
-              }
-            };
-          }
-        };
       })
       .catch(err => {
         console.error('PWA ServiceWorker registration failed:', err);
       });
-  });
-
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!refreshing) {
-      refreshing = true;
-      window.location.reload();
-    }
   });
 }
