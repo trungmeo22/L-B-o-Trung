@@ -1,44 +1,31 @@
-import { SheetData, HolterType, HolterStatus, HolterDevice, Task, Consultation, Discharge, VitalsRecord, GlucoseRecord } from '../types';
+
+import { SheetData, HolterType, HolterStatus, HolterDevice, Task, Consultation, Discharge, VitalsRecord, GlucoseRecord, CLSRecord, HandoverRecord, User } from '../types';
 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
-// Dán URL Web App từ Google Apps Script vào đây.
-// Nếu để trống, App sẽ chạy chế độ Offline (LocalStorage).
-const API_URL: string = 'https://script.google.com/macros/s/AKfycbyAGbIiI0qwTwyA125RbstoJTFTUO_ZjsQPjANLK4Hpq10y_ebb_TpsFpzvIweDQvbaRA/exec'; 
-// Ví dụ: const API_URL = 'https://script.google.com/macros/s/AKfycbx.../exec';
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxInibKNTf1ztHz_LP0IFn2cRSGhCYBG0wXyP6vT_Bq0SycdCNytMIIqdKkQyknFswFYQ/exec'; 
 
 const STORAGE_KEY = 'KHOA_NOI_APP_DATA';
+const AUTH_KEY = 'KHOA_NOI_AUTH_USER';
+const API_URL_KEY = 'APP_API_URL';
 
-// Helper to get today's date
-const getTodayString = () => new Date().toISOString().split('T')[0];
-const getYesterdayString = () => {
-    const date = new Date();
-    date.setDate(date.getDate() - 1);
-    return date.toISOString().split('T')[0];
-};
-
-// Mock Data for Initial Offline Use
 const INITIAL_DATA: SheetData = {
   lastUpdated: new Date().toISOString(),
-  holters: [
-    { id: 'h1', name: 'ECG-01', type: HolterType.ECG, status: HolterStatus.COMPLETED, patientName: '', room: '', installDate: '' },
-    { id: 'h2', name: 'ECG-02', type: HolterType.ECG, status: HolterStatus.ACTIVE, patientName: 'Nguyen Van A', room: 'P301', installDate: '2023-10-27', endTime: '14:00' },
-    { id: 'h4', name: 'HA-01', type: HolterType.BP, status: HolterStatus.COMPLETED, patientName: '', room: '', installDate: '' },
-    { id: 'h5', name: 'HA-02', type: HolterType.BP, status: HolterStatus.ACTIVE, patientName: 'Le Van C', room: 'Cấp cứu', installDate: '2023-10-27', endTime: '16:30' },
-  ],
-  tasks: [
-    { id: 't1', title: 'Họp giao ban khoa', date: getTodayString(), completed: false, priority: 'medium' },
-  ],
+  holters: [],
+  tasks: [],
   consultations: [],
   discharges: [],
   vitals: [],
   glucoseRecords: [],
+  clsRecords: [],
+  handovers: [],
+  users: [],
   tracker: [
-      { id: '1', key: 'available', bp: '5', ecg: '3' },
-      { id: '2', key: 'wearing', bp: '2', ecg: '1' },
-      { id: '3', key: 'waiting', bp: '0', ecg: '0' },
-      { id: '4', key: 'next_free', bp: '14:00', ecg: '10:00' }
+      { id: '1', key: 'maytrong', bp: '0', ecg: '0' },
+      { id: '2', key: 'dangdeo', bp: '0', ecg: '0' },
+      { id: '3', key: 'dangcho', bp: '0', ecg: '0' },
+      { id: '4', key: 'khinaotrong', bp: '--:--', ecg: '--:--' }
   ]
 };
 
@@ -46,12 +33,21 @@ const INITIAL_DATA: SheetData = {
 // API HELPERS
 // ============================================================================
 
-const isApiConfigured = () => API_URL && API_URL.startsWith('http');
+export const getApiUrl = () => {
+    return localStorage.getItem(API_URL_KEY) || DEFAULT_API_URL;
+};
+
+export const saveApiUrl = (url: string) => {
+    localStorage.setItem(API_URL_KEY, url.trim());
+};
+
+export const isApiConfigured = () => {
+    const url = getApiUrl();
+    return url && url.length > 10 && url.startsWith('http') && url.includes('/exec');
+};
 
 const apiRequest = async (action: 'create' | 'update' | 'delete', type: string, dataOrId: any) => {
     if (!isApiConfigured()) return;
-    
-    // Google Apps Script requires content-type text/plain to avoid CORS preflight issues in some cases.
     
     const payload = {
         action,
@@ -59,49 +55,88 @@ const apiRequest = async (action: 'create' | 'update' | 'delete', type: string, 
         ...(action === 'delete' ? { id: dataOrId } : { data: dataOrId })
     };
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); 
+
     try {
-        await fetch(API_URL, {
+        const response = await fetch(getApiUrl(), {
             method: 'POST',
             body: JSON.stringify(payload),
-            // Important: Use text/plain to avoid OPTIONS preflight request which GAS doesn't support
-            headers: {
-                'Content-Type': 'text/plain;charset=utf-8',
-            },
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            redirect: 'follow',
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            throw new Error(`Server Error: ${response.status}`);
+        }
+        const text = await response.text();
+        return JSON.parse(text);
     } catch (error) {
         console.error("API Request Failed:", error);
         throw error;
     }
 };
 
-// Helper to normalize dates coming from Google Sheets (ISO format to YYYY-MM-DD)
 const normalizeData = (data: any): SheetData => {
+    if (!data) return INITIAL_DATA;
+    
     const formatDate = (d: any) => {
         if (!d) return '';
-        if (typeof d === 'string' && d.includes('T')) {
-            return d.split('T')[0];
+        const str = String(d);
+        if (str === '1899-12-30') return new Date().toISOString().split('T')[0];
+        if (str.includes('T')) return str.split('T')[0];
+        return str;
+    };
+
+    const formatDateTime = (d: any) => {
+        if (!d) return '';
+        let str = String(d);
+        if (str === '1899-12-30') return new Date().toISOString().substring(0, 16);
+        if (str.includes('T')) return str.substring(0, 16);
+        return str;
+    };
+
+    const formatTimeOnly = (t: any) => {
+        if (!t) return '';
+        let str = String(t);
+        if (str.includes('T')) {
+            const timePart = str.split('T')[1];
+            return timePart.substring(0, 5);
         }
-        return String(d);
+        if (str.includes(':')) {
+            return str.split(':').slice(0, 2).join(':');
+        }
+        return str;
     };
 
     return {
+        ...INITIAL_DATA,
         ...data,
+        lastUpdated: data.lastUpdated || new Date().toISOString(),
         tasks: Array.isArray(data.tasks) ? data.tasks.map((t: any) => ({ ...t, date: formatDate(t.date) })) : [],
         consultations: Array.isArray(data.consultations) ? data.consultations.map((c: any) => ({ ...c, date: formatDate(c.date) })) : [],
         discharges: Array.isArray(data.discharges) ? data.discharges.map((d: any) => ({ ...d, date: formatDate(d.date) })) : [],
-        vitals: Array.isArray(data.vitals) ? data.vitals.map((v: any) => ({ ...v, date: formatDate(v.date) })) : [],
+        vitals: Array.isArray(data.vitals) ? data.vitals.map((v: any) => ({ 
+            ...v, 
+            date: formatDate(v.date),
+            time: formatTimeOnly(v.time)
+        })) : [],
         glucoseRecords: Array.isArray(data.glucoseRecords) ? data.glucoseRecords.map((g: any) => ({ ...g, date: formatDate(g.date) })) : [],
+        clsRecords: Array.isArray(data.clsRecords) ? data.clsRecords.map((c: any) => ({ ...c, returnDate: formatDate(c.returnDate) })) : [],
+        handovers: Array.isArray(data.handovers) ? data.handovers.map((h: any) => ({ ...h, date: formatDate(h.date) })) : [],
+        users: Array.isArray(data.users) ? data.users : [],
         holters: Array.isArray(data.holters) ? data.holters.map((h: any) => ({ 
             ...h, 
-            installDate: formatDate(h.installDate),
-            // endTime might be a time string (14:00) or date (2023-10-20), handle ISO if present
-            endTime: h.endTime && String(h.endTime).includes('T') ? formatDate(h.endTime) : h.endTime 
+            installDate: formatDateTime(h.installDate),
+            endTime: h.endTime ? formatDateTime(h.endTime) : ''
         })) : [],
         tracker: Array.isArray(data.tracker) ? data.tracker.map((t: any) => ({
             ...t,
-            bp: String(t.bp),
-            ecg: String(t.ecg)
-        })) : []
+            bp: String(t.bp || '0'),
+            ecg: String(t.ecg || '0')
+        })) : INITIAL_DATA.tracker
     };
 };
 
@@ -109,270 +144,287 @@ const normalizeData = (data: any): SheetData => {
 // DATA FUNCTIONS
 // ============================================================================
 
-export const fetchData = async (): Promise<SheetData> => {
-  if (isApiConfigured()) {
-      try {
-          // Important: credentials: 'omit' prevents multi-account login conflicts
-          const response = await fetch(API_URL, {
-              method: 'GET',
-              credentials: 'omit'
-          });
+export interface FetchResult {
+    data: SheetData;
+    isOffline: boolean;
+}
 
-          if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
+export const fetchData = async (): Promise<FetchResult> => {
+  let isOffline = false;
+
+  if (isApiConfigured()) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); 
+
+      try {
+          const fetchUrl = `${getApiUrl()}?t=${new Date().getTime()}`;
+          const response = await fetch(fetchUrl, {
+              method: 'GET',
+              mode: 'cors',
+              credentials: 'omit',
+              redirect: 'follow',
+              signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+          const text = await response.text();
+          if (!text || text.trim().startsWith('<')) {
+              throw new Error("Dữ liệu trả về không đúng định dạng (có thể là HTML lỗi)");
           }
 
-          const rawData = await response.json();
-          const normalizedData = normalizeData(rawData);
-          return { ...INITIAL_DATA, ...normalizedData };
+          const rawData = JSON.parse(text);
+          const normalized = normalizeData(rawData);
+          
+          if (normalized.lastUpdated) {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+          }
+          
+          return { data: normalized, isOffline: false };
+
       } catch (error) {
-          console.error("Failed to fetch from Google Sheet, falling back to local.", error);
-          // Fallback handled below
+          console.warn("Fetch failed, falling back to local storage:", error);
+          isOffline = true;
       }
+  } else {
+      isOffline = true;
   }
 
-  // Local Storage Fallback
   const stored = localStorage.getItem(STORAGE_KEY);
   if (stored) {
-    return JSON.parse(stored);
+    try {
+        const parsed = JSON.parse(stored);
+        return { data: parsed, isOffline };
+    } catch (e) {
+        return { data: INITIAL_DATA, isOffline };
+    }
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_DATA));
-  return INITIAL_DATA;
+  
+  return { data: INITIAL_DATA, isOffline };
 };
 
-// Helper for local storage updates
 const updateLocal = async (modifier: (current: SheetData) => SheetData): Promise<SheetData> => {
-    let current = await fetchData();
-    // If we just fetched from API, we shouldn't save to LocalStorage as master, 
-    // but for the sake of this hybrid service, we treat local as cache.
+    const stored = localStorage.getItem(STORAGE_KEY);
+    let current = stored ? JSON.parse(stored) : INITIAL_DATA;
     const newData = modifier(current);
-    if (!isApiConfigured()) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
     return newData;
 };
 
 export const saveData = async (data: SheetData): Promise<void> => {
-    if (!isApiConfigured()) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+};
+
+// AUTH FUNCTIONS
+export const getCurrentUser = (): User | null => {
+    const stored = localStorage.getItem(AUTH_KEY);
+    return stored ? JSON.parse(stored) : null;
+};
+
+export const setCurrentUser = (user: User | null) => {
+    if (user) {
+        localStorage.setItem(AUTH_KEY, JSON.stringify(user));
+    } else {
+        localStorage.removeItem(AUTH_KEY);
     }
 };
 
-// ----------------------------------------------------------------------------
-// TASKS
-// ----------------------------------------------------------------------------
-
+// SPECIFIC OPERATIONS
 export const addTaskToSheet = async (task: Task): Promise<SheetData> => {
-    // API Call
-    if (isApiConfigured()) {
-        // Check if exists (update) or new (create)
-        const current = await fetchData();
-        const exists = current.tasks.some(t => String(t.id) === String(task.id));
-        await apiRequest(exists ? 'update' : 'create', 'tasks', task);
-        return fetchData();
-    }
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.tasks.some((t: any) => String(t.id) === String(task.id));
 
-    return updateLocal(current => {
-        const exists = current.tasks.some(t => t.id === task.id);
+    const newData = await updateLocal(curr => {
         const updatedTasks = exists 
-            ? current.tasks.map(t => t.id === task.id ? task : t)
-            : [...current.tasks, task];
-        return { ...current, tasks: updatedTasks };
+            ? curr.tasks.map(t => String(t.id) === String(task.id) ? task : t)
+            : [...curr.tasks, task];
+        return { ...curr, tasks: updatedTasks };
     });
+    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'tasks', task).catch(console.error);
+    return newData;
 };
 
 export const deleteTask = async (id: string): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        await apiRequest('delete', 'tasks', id);
-        return fetchData();
-    }
-    return updateLocal(current => ({
+    const newData = await updateLocal(current => ({
         ...current,
         tasks: current.tasks.filter(t => t.id !== id)
     }));
+    if (isApiConfigured()) apiRequest('delete', 'tasks', id).catch(console.error);
+    return newData;
 };
 
-// ----------------------------------------------------------------------------
-// CONSULTATIONS
-// ----------------------------------------------------------------------------
-
 export const addConsultationToSheet = async (consultation: Consultation): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        const current = await fetchData();
-        const exists = current.consultations.some(c => String(c.id) === String(consultation.id));
-        await apiRequest(exists ? 'update' : 'create', 'consultations', consultation);
-        return fetchData();
-    }
-    return updateLocal(current => {
-        const exists = current.consultations.some(c => c.id === consultation.id);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.consultations.some((c: any) => String(c.id) === String(consultation.id));
+
+    const newData = await updateLocal(curr => {
         const updated = exists 
-            ? current.consultations.map(c => c.id === consultation.id ? consultation : c)
-            : [...current.consultations, consultation];
-        return { ...current, consultations: updated };
+            ? curr.consultations.map(c => String(c.id) === String(consultation.id) ? consultation : c)
+            : [...curr.consultations, consultation];
+        return { ...curr, consultations: updated };
     });
+    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'consultations', consultation).catch(console.error);
+    return newData;
 };
 
 export const deleteConsultation = async (id: string): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        await apiRequest('delete', 'consultations', id);
-        return fetchData();
-    }
-    return updateLocal(current => ({
+    const newData = await updateLocal(current => ({
         ...current,
         consultations: current.consultations.filter(c => c.id !== id)
     }));
+    if (isApiConfigured()) apiRequest('delete', 'consultations', id).catch(console.error);
+    return newData;
 };
 
-// ----------------------------------------------------------------------------
-// DISCHARGES
-// ----------------------------------------------------------------------------
-
 export const addDischargeToSheet = async (discharge: Discharge): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        const current = await fetchData();
-        const exists = current.discharges.some(d => String(d.id) === String(discharge.id));
-        await apiRequest(exists ? 'update' : 'create', 'discharges', discharge);
-        return fetchData();
-    }
-    return updateLocal(current => {
-        const exists = current.discharges.some(d => d.id === discharge.id);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.discharges.some((d: any) => String(d.id) === String(discharge.id));
+
+    const newData = await updateLocal(curr => {
         const updated = exists 
-            ? current.discharges.map(d => d.id === discharge.id ? discharge : d)
-            : [...current.discharges, discharge];
-        return { ...current, discharges: updated };
+            ? curr.discharges.map(d => String(d.id) === String(discharge.id) ? discharge : d)
+            : [...curr.discharges, discharge];
+        return { ...curr, discharges: updated };
     });
+    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'discharges', discharge).catch(console.error);
+    return newData;
 };
 
 export const deleteDischarge = async (id: string): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        await apiRequest('delete', 'discharges', id);
-        return fetchData();
-    }
-    return updateLocal(current => ({
+    const newData = await updateLocal(current => ({
         ...current,
         discharges: current.discharges.filter(d => d.id !== id)
     }));
+    if (isApiConfigured()) apiRequest('delete', 'discharges', id).catch(console.error);
+    return newData;
 };
 
-// ----------------------------------------------------------------------------
-// VITALS
-// ----------------------------------------------------------------------------
-
 export const addVitalsToSheet = async (vital: VitalsRecord): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        const current = await fetchData();
-        const exists = current.vitals.some(v => String(v.id) === String(vital.id));
-        await apiRequest(exists ? 'update' : 'create', 'vitals', vital);
-        return fetchData();
-    }
-    return updateLocal(current => {
-        const exists = current.vitals.some(v => v.id === vital.id);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.vitals.some((v: any) => String(v.id) === String(vital.id));
+
+    const newData = await updateLocal(curr => {
         const updated = exists 
-            ? current.vitals.map(v => v.id === vital.id ? vital : v)
-            : [...current.vitals, vital];
-        return { ...current, vitals: updated };
+            ? curr.vitals.map(v => String(v.id) === String(vital.id) ? vital : v)
+            : [...curr.vitals, vital];
+        return { ...curr, vitals: updated };
     });
+    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'vitals', vital).catch(console.error);
+    return newData;
 };
 
 export const deleteVitals = async (id: string): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        await apiRequest('delete', 'vitals', id);
-        return fetchData();
-    }
-    return updateLocal(current => ({
+    const newData = await updateLocal(current => ({
         ...current,
         vitals: current.vitals.filter(v => v.id !== id)
     }));
+    if (isApiConfigured()) apiRequest('delete', 'vitals', id).catch(console.error);
+    return newData;
 };
 
-// ----------------------------------------------------------------------------
-// GLUCOSE
-// ----------------------------------------------------------------------------
-
 export const addGlucoseToSheet = async (record: GlucoseRecord): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        const current = await fetchData();
-        const exists = current.glucoseRecords.some(g => String(g.id) === String(record.id));
-        await apiRequest(exists ? 'update' : 'create', 'glucoseRecords', record);
-        return fetchData();
-    }
-    return updateLocal(current => {
-        const exists = current.glucoseRecords.some(g => g.id === record.id);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.glucoseRecords.some((g: any) => String(g.id) === String(record.id));
+
+    const newData = await updateLocal(curr => {
         const updated = exists 
-            ? current.glucoseRecords.map(g => g.id === record.id ? record : g)
-            : [...current.glucoseRecords, record];
-        return { ...current, glucoseRecords: updated };
+            ? curr.glucoseRecords.map(g => String(g.id) === String(record.id) ? record : g)
+            : [...curr.glucoseRecords, record];
+        return { ...curr, glucoseRecords: updated };
     });
+    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'glucoseRecords', record).catch(console.error);
+    return newData;
 };
 
 export const deleteGlucose = async (id: string): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        await apiRequest('delete', 'glucoseRecords', id);
-        return fetchData();
-    }
-    return updateLocal(current => ({
+    const newData = await updateLocal(current => ({
         ...current,
         glucoseRecords: current.glucoseRecords.filter(g => g.id !== id)
     }));
+    if (isApiConfigured()) apiRequest('delete', 'glucoseRecords', id).catch(console.error);
+    return newData;
 };
-
-// ----------------------------------------------------------------------------
-// HOLTERS
-// ----------------------------------------------------------------------------
 
 export const addHolterToSheet = async (holter: HolterDevice): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        const current = await fetchData();
-        const exists = current.holters.some(h => String(h.id) === String(holter.id));
-        await apiRequest(exists ? 'update' : 'create', 'holters', holter);
-        return fetchData();
-    }
-    return updateLocal(current => {
-        const exists = current.holters.some(h => h.id === holter.id);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.holters.some((h: any) => String(h.id) === String(holter.id));
+
+    const newData = await updateLocal(curr => {
         const updated = exists 
-            ? current.holters.map(h => h.id === holter.id ? holter : h)
-            : [...current.holters, holter];
-        return { ...current, holters: updated };
+            ? curr.holters.map(h => String(h.id) === String(holter.id) ? holter : h)
+            : [...curr.holters, holter];
+        return { ...curr, holters: updated };
     });
-};
-
-export const updateHolterStatus = async (holterId: string, status: HolterStatus, patientName?: string, endTime?: string): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        // Send a partial update if API supports it, or generic update
-        // Our simple generic update relies on ID matching.
-        // We construct the update object.
-        const updatePayload = {
-            id: holterId,
-            status,
-            ...(patientName !== undefined && { patientName }),
-            ...(endTime !== undefined && { endTime })
-        };
-        await apiRequest('update', 'holters', updatePayload);
-        return fetchData();
-    }
-
-    return updateLocal(current => {
-        const updatedHolters = current.holters.map(h => {
-            if (h.id === holterId) {
-                return { ...h, status, patientName: patientName || h.patientName, endTime: endTime || h.endTime };
-            }
-            return h;
-        });
-        return { ...current, holters: updatedHolters };
-    });
+    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'holters', holter).catch(console.error);
+    return newData;
 };
 
 export const deleteHolter = async (id: string): Promise<SheetData> => {
-    if (isApiConfigured()) {
-        await apiRequest('delete', 'holters', id);
-        return fetchData();
-    }
-    return updateLocal(current => ({
+    const newData = await updateLocal(current => ({
         ...current,
         holters: current.holters.filter(h => h.id !== id)
     }));
+    if (isApiConfigured()) apiRequest('delete', 'holters', id).catch(console.error);
+    return newData;
 };
 
-export const addActivityLog = async (type: string, data: any): Promise<void> => {
-    console.log(`[DataService] Added new ${type}:`, data);
+export const addCLSToSheet = async (record: CLSRecord): Promise<SheetData> => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.clsRecords.some((c: any) => String(c.id) === String(record.id));
+
+    const newData = await updateLocal(curr => {
+        const updated = exists 
+            ? curr.clsRecords.map(c => String(c.id) === String(record.id) ? record : c)
+            : [...curr.clsRecords, record];
+        return { ...curr, clsRecords: updated };
+    });
+    
+    if (isApiConfigured()) {
+        apiRequest(exists ? 'update' : 'create', 'clsRecords', record).catch(err => {
+            console.error("Lỗi khi đồng bộ CLS lên Sheet:", err);
+        });
+    }
+    return newData;
+};
+
+export const deleteCLS = async (id: string): Promise<SheetData> => {
+    const newData = await updateLocal(current => ({
+        ...current,
+        clsRecords: current.clsRecords.filter(c => c.id !== id)
+    }));
+    if (isApiConfigured()) apiRequest('delete', 'clsRecords', id).catch(console.error);
+    return newData;
+};
+
+export const addHandoverToSheet = async (record: HandoverRecord): Promise<SheetData> => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
+    const exists = current.handovers.some((h: any) => String(h.id) === String(record.id));
+
+    const newData = await updateLocal(curr => {
+        const updated = exists 
+            ? curr.handovers.map(h => String(h.id) === String(record.id) ? record : h)
+            : [...curr.handovers, record];
+        return { ...curr, handovers: updated };
+    });
+    
+    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'handovers', record).catch(console.error);
+    return newData;
+};
+
+export const deleteHandover = async (id: string): Promise<SheetData> => {
+    const newData = await updateLocal(current => ({
+        ...current,
+        handovers: current.handovers.filter(h => h.id !== id)
+    }));
+    if (isApiConfigured()) apiRequest('delete', 'handovers', id).catch(console.error);
+    return newData;
 };

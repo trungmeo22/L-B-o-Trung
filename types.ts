@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 export enum HolterType {
@@ -10,6 +11,14 @@ export enum HolterStatus {
   ACTIVE = 'Đang lắp',
   COMPLETED = 'Đã tháo',
   OTHER = 'Khác'
+}
+
+export interface User {
+  id: string;
+  username: string;
+  password?: string;
+  displayName: string;
+  role: string;
 }
 
 export interface HolterDevice {
@@ -29,6 +38,7 @@ export interface Task {
   date: string;
   completed: boolean;
   priority: 'low' | 'medium' | 'high';
+  status: 'xong' | 'chưa xong'; // Trường mới theo yêu cầu
 }
 
 export interface Consultation {
@@ -36,6 +46,7 @@ export interface Consultation {
   patientName: string;
   age: string;
   department: string; // Khoa mời
+  consultantDoctor: string; // Bác sĩ hội chẩn (New field)
   diagnosis: string; // Chẩn đoán sau hội chẩn
   treatment: string; // Hướng xử lý
   date: string; // Ngày mời hội chẩn (YYYY-MM-DD)
@@ -59,17 +70,42 @@ export interface VitalsRecord {
   pulse: string; // Mạch
   temp: string; // Nhiệt độ
   spO2: string;
+  note: string; // Chú thích (Added field)
+}
+
+export interface GlucoseSlotData {
+  time: string;
+  testResult: string;
+  insulinType: string;
+  insulinDose: string;
 }
 
 export interface GlucoseRecord {
   id: string;
   date: string; // YYYY-MM-DD
-  time: string; // HH:mm
   room: string;
   patientName: string;
-  insulinType: string; // Loại insulin
-  insulinDose: string; // Liều insulin
-  testResult: string; // Kết quả test
+  slots: string; // JSON string of GlucoseSlotData[]
+  note: string;
+}
+
+export interface CLSRecord {
+  id: string;
+  patientName: string;
+  phone: string;
+  cls: string;
+  returnDate: string; // YYYY-MM-DD
+  doctor: string;
+  status: 'Chưa trả' | 'Đã trả';
+}
+
+export interface HandoverRecord {
+  id: string;
+  patientName: string;
+  room: string;
+  doctor: string; // BS bàn giao
+  content: string; // Nội dung
+  date: string; // YYYY-MM-DD
 }
 
 export interface TrackerRecord {
@@ -94,6 +130,9 @@ export type SheetData = {
   discharges: Discharge[];
   vitals: VitalsRecord[];
   glucoseRecords: GlucoseRecord[];
+  clsRecords: CLSRecord[];
+  handovers: HandoverRecord[];
   tracker: TrackerRecord[];
+  users: User[];
   lastUpdated: string;
 };

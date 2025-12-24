@@ -7,10 +7,35 @@ interface HolterTrackingProps {
 
 const HolterTracking: React.FC<HolterTrackingProps> = ({ trackerData = [] }) => {
   
-  // Helper to safely get value for a specific key
+  // Helper to format tracker values, specially handling date strings for the 'khinaotrong' key
+  const formatValue = (key: string, val: string) => {
+    if (!val || val === '-' || val === '0' || val === '--:--') return val;
+
+    // Only format as date if it's the "Khi nào trống" row
+    if (key === 'khinaotrong') {
+      try {
+        const date = new Date(val);
+        // Check if it's a valid date
+        if (isNaN(date.getTime())) return val;
+
+        const hh = String(date.getHours()).padStart(2, '0');
+        const mm = String(date.getMinutes()).padStart(2, '0');
+        const ss = String(date.getSeconds()).padStart(2, '0');
+        const DD = String(date.getDate()).padStart(2, '0');
+        const MM = String(date.getMonth() + 1).padStart(2, '0');
+
+        return `${hh}:${mm}:${ss} ${DD}/${MM}`;
+      } catch (e) {
+        return val;
+      }
+    }
+    return val;
+  };
+
   const getValue = (key: string, type: 'bp' | 'ecg') => {
       const record = trackerData.find(r => r.key === key);
-      return record ? record[type] : '-';
+      const rawValue = record ? record[type] : '-';
+      return formatValue(key, rawValue);
   };
 
   return (
@@ -36,23 +61,23 @@ const HolterTracking: React.FC<HolterTrackingProps> = ({ trackerData = [] }) => 
           <tbody className="divide-y divide-slate-100">
             <tr className="bg-green-50/50">
               <td className="px-4 py-3 font-medium text-slate-700">Máy trống</td>
-              <td className="px-4 py-3 text-center font-bold text-slate-800">{getValue('available', 'bp')}</td>
-              <td className="px-4 py-3 text-center font-bold text-slate-800">{getValue('available', 'ecg')}</td>
+              <td className="px-4 py-3 text-center font-bold text-slate-800">{getValue('maytrong', 'bp')}</td>
+              <td className="px-4 py-3 text-center font-bold text-slate-800">{getValue('maytrong', 'ecg')}</td>
             </tr>
             <tr>
               <td className="px-4 py-3 font-medium text-slate-700">Đang đeo</td>
-              <td className="px-4 py-3 text-center text-slate-600">{getValue('wearing', 'bp')}</td>
-              <td className="px-4 py-3 text-center text-slate-600">{getValue('wearing', 'ecg')}</td>
+              <td className="px-4 py-3 text-center text-slate-600">{getValue('dangdeo', 'bp')}</td>
+              <td className="px-4 py-3 text-center text-slate-600">{getValue('dangdeo', 'ecg')}</td>
             </tr>
             <tr>
               <td className="px-4 py-3 font-medium text-slate-700">Đang chờ</td>
-              <td className="px-4 py-3 text-center text-slate-600">{getValue('waiting', 'bp')}</td>
-              <td className="px-4 py-3 text-center text-slate-600">{getValue('waiting', 'ecg')}</td>
+              <td className="px-4 py-3 text-center text-slate-600">{getValue('dangcho', 'bp')}</td>
+              <td className="px-4 py-3 text-center text-slate-600">{getValue('dangcho', 'ecg')}</td>
             </tr>
             <tr className="bg-slate-50">
               <td className="px-4 py-3 font-medium text-slate-700">Khi nào trống</td>
-              <td className="px-4 py-3 text-center text-sm font-semibold text-primary">{getValue('next_free', 'bp')}</td>
-              <td className="px-4 py-3 text-center text-sm font-semibold text-primary">{getValue('next_free', 'ecg')}</td>
+              <td className="px-4 py-3 text-center text-sm font-semibold text-primary">{getValue('khinaotrong', 'bp')}</td>
+              <td className="px-4 py-3 text-center text-sm font-semibold text-primary">{getValue('khinaotrong', 'ecg')}</td>
             </tr>
           </tbody>
         </table>
