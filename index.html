@@ -8,16 +8,18 @@
     
     <!-- PWA primary color -->
     <meta name="theme-color" content="#0ea5e9">
-    <!-- Thêm ?v=2 để trình duyệt nhận biết có sự thay đổi trong cấu hình icon -->
-    <link rel="manifest" href="/manifest.json?v=2">
+    
+    <!-- Cập nhật đường dẫn manifest chính xác theo cấu trúc thư mục -->
+    <link rel="manifest" href="/public/manifest.json">
     
     <!-- iOS support -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Khoa Nội">
     
-    <!-- Icon cho iPhone/iPad -->
-    <link rel="apple-touch-icon" href="/icon.PNG?v=2">
+    <!-- Icon cho iPhone/iPad - trỏ trực tiếp vào file ở root -->
+    <link rel="apple-touch-icon" href="/icon.PNG">
+    <link rel="icon" type="image/png" href="/icon.PNG">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">

@@ -15,11 +15,10 @@ root.render(
   </React.StrictMode>
 );
 
-// Đăng ký Service Worker cho PWA
+// Đăng ký Service Worker từ thư mục public
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    // File sw.js sau khi build sẽ nằm ở root của domain
-    navigator.serviceWorker.register('/sw.js').then(registration => {
+    navigator.serviceWorker.register('/public/sw.js').then(registration => {
       console.log('PWA ServiceWorker registered');
     }).catch(err => {
       console.log('PWA ServiceWorker registration failed: ', err);
