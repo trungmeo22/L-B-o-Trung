@@ -6,15 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Khoa Nội Manager</title>
     
-    <!-- PWA primary color -->
-    <meta name="theme-color" content="#0ea5e9">
+    <!-- PWA primary color - Changed to Green to match logo -->
+    <meta name="theme-color" content="#15803d">
     <link rel="manifest" href="/manifest.json">
     
     <!-- iOS support -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Khoa Nội">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3063/3063116.png">
+    <!-- Sử dụng file icon.png bạn vừa lưu vào thư mục public -->
+    <link rel="apple-touch-icon" href="/icon.png">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -26,9 +27,9 @@
               sans: ['Inter', 'sans-serif'],
             },
             colors: {
-              primary: '#0ea5e9', // Sky 500
+              primary: '#15803d', // Green 700 (Khớp màu logo)
               secondary: '#64748b', // Slate 500
-              success: '#22c55e', // Green 500
+              success: '#16a34a', // Green 600
               warning: '#eab308', // Yellow 500
               danger: '#ef4444', // Red 500
             },
@@ -54,17 +55,14 @@
       body {
         background-color: #f8fafc;
         -webkit-tap-highlight-color: transparent;
-        /* Chống kéo thả làm reload trang trên iOS Safari */
         overscroll-behavior-y: contain;
       }
-      /* Safe area padding cho iPhones có tai thỏ */
       .pb-safe {
         padding-bottom: env(safe-area-inset-bottom);
       }
       .pt-safe {
         padding-top: env(safe-area-inset-top);
       }
-      /* Ẩn scrollbar nhưng vẫn scroll được */
       .no-scrollbar::-webkit-scrollbar {
         display: none;
       }
