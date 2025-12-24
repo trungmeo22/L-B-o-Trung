@@ -3,6 +3,8 @@ const CACHE_NAME = 'khoa-noi-v1';
 const urlsToCache = [
   '/',
   '/index.html',
+  '/manifest.json',
+  '/icon.png',
   'https://cdn.tailwindcss.com',
   'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
 ];
