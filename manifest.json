@@ -1,0 +1,23 @@
+{
+  "name": "Khoa Nội Manager",
+  "short_name": "Khoa Nội",
+  "description": "Quản lý công việc và theo dõi bệnh nhân Khoa Nội",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0ea5e9",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3063/3063176.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/192/3063/3063176.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}

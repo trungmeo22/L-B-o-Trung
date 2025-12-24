@@ -1,4 +1,3 @@
-
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -8,20 +7,18 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
+// Đăng ký Service Worker cho PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW Registered', reg))
+      .catch(err => console.log('SW Registration Failed', err));
+  });
+}
+
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
-
-// Đăng ký Service Worker từ root
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(registration => {
-      console.log('PWA ServiceWorker registered');
-    }).catch(err => {
-      console.log('PWA ServiceWorker registration failed: ', err);
-    });
-  });
-}
