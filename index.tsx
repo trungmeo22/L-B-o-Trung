@@ -18,10 +18,11 @@ root.render(
 // Đăng ký Service Worker cho PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
+    // File sw.js sau khi build sẽ nằm ở root của domain
     navigator.serviceWorker.register('/sw.js').then(registration => {
-      console.log('SW registered: ', registration);
-    }).catch(registrationError => {
-      console.log('SW registration failed: ', registrationError);
+      console.log('PWA ServiceWorker registered');
+    }).catch(err => {
+      console.log('PWA ServiceWorker registration failed: ', err);
     });
   });
 }
