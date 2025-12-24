@@ -1,19 +1,21 @@
 
-const CACHE_NAME = 'khoa-noi-v2';
+const CACHE_NAME = 'khoa-noi-v3';
 const urlsToCache = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/icon.png',
-  'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap'
+  '/icon.png'
 ];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(urlsToCache))
+      .then(cache => {
+        return Promise.allSettled(
+          urlsToCache.map(url => cache.add(url).catch(err => console.warn('Cache failed for:', url)))
+        );
+      })
   );
 });
 
@@ -24,11 +26,13 @@ self.addEventListener('activate', event => {
         cacheNames.filter(name => name !== CACHE_NAME)
           .map(name => caches.delete(name))
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  
   event.respondWith(
     caches.match(event.request)
       .then(response => {
