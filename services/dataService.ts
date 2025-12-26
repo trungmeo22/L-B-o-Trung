@@ -4,7 +4,7 @@ import { SheetData, HolterType, HolterStatus, HolterDevice, Task, Consultation, 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxInibKNTf1ztHz_LP0IFn2cRSGhCYBG0wXyP6vT_Bq0SycdCNytMIIqdKkQyknFswFYQ/exec'; 
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbz0TYgO1INqFe7doW22-W9GXJHySUUPld8O16drEH8z3rwGrduP-O56wio-nrkXctHlMA/exec'; 
 
 const STORAGE_KEY = 'KHOA_NOI_APP_DATA';
 const AUTH_KEY = 'KHOA_NOI_AUTH_USER';
@@ -101,10 +101,12 @@ const normalizeData = (data: any): SheetData => {
     const formatTimeOnly = (t: any) => {
         if (!t) return '';
         let str = String(t);
+        // Xử lý định dạng ISO "yyyy-MM-ddTHH:mm:ss"
         if (str.includes('T')) {
             const timePart = str.split('T')[1];
             return timePart.substring(0, 5);
         }
+        // Xử lý định dạng "HH:mm:ss" hoặc "HH:mm"
         if (str.includes(':')) {
             return str.split(':').slice(0, 2).join(':');
         }

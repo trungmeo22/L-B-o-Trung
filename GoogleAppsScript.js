@@ -58,8 +58,10 @@ function doGet(e) {
           if (header === 'completed') {
             value = (value === true || String(value).toLowerCase() === 'true');
           } else if (value instanceof Date) {
-            if (value.getFullYear() === 1899) {
-               obj[header] = '';
+            var year = value.getFullYear();
+            if (year === 1899) {
+               // Đây thường là giá trị THỜI GIAN trong Google Sheets
+               obj[header] = Utilities.formatDate(value, tz, "HH:mm");
             } else if (header === 'installDate' || header === 'endTime') {
               obj[header] = Utilities.formatDate(value, tz, "yyyy-MM-dd'T'HH:mm:ss");
             } else if (header === 'date' || header === 'returnDate') {
