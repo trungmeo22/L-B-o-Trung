@@ -9,6 +9,7 @@ import {
   deleteDoc, 
   doc, 
   setDoc,
+  getDoc,
   query,
   orderBy,
   where
@@ -327,10 +328,29 @@ export const loginWithPassword = async (username: string, password: string): Pro
         const userCredential = await signInWithEmailAndPassword(auth, email, password);
         const fbUser = userCredential.user;
         
+        let displayName = fbUser.displayName || username;
+
+        // Fetch custom name from 'nameid' collection
+        // Assuming the Document ID is the username (e.g. 'abc')
+        try {
+            const docRef = doc(db, 'nameid', username);
+            const docSnap = await getDoc(docRef);
+            
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data && data.name) {
+                    displayName = data.name;
+                }
+            }
+        } catch (fetchError) {
+            console.error("Warning: Could not fetch custom name from 'nameid'", fetchError);
+            // Non-blocking error, continue with default display name
+        }
+        
         const user: User = {
             id: fbUser.uid,
             username: username,
-            displayName: fbUser.displayName || username,
+            displayName: displayName, 
             role: 'staff' // Default role
         };
         updateStoredUser(user);
@@ -339,6 +359,29 @@ export const loginWithPassword = async (username: string, password: string): Pro
         console.error("Login failed", error);
         throw error;
     }
+};
+
+// Helper function to sync user profile if it's stale (e.g. showing "abc")
+export const syncUserProfile = async (currentUser: User): Promise<User> => {
+    if (!currentUser || !currentUser.username) return currentUser;
+
+    try {
+        const docRef = doc(db, 'nameid', currentUser.username);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            // If the name in DB is different from current display name, update it
+            if (data && data.name && data.name !== currentUser.displayName) {
+                const updatedUser = { ...currentUser, displayName: data.name };
+                updateStoredUser(updatedUser);
+                return updatedUser;
+            }
+        }
+    } catch (e) {
+        console.error("Error syncing user profile:", e);
+    }
+    return currentUser;
 };
 
 export const logoutFirebase = async () => {

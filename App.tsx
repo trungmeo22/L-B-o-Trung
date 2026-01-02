@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import { SheetData, MenuItem, Task, HolterType, HolterStatus, HolterDevice, Consultation, Discharge, VitalsRecord, GlucoseRecord, GlucoseSlotData, CLSRecord, HandoverRecord, User } from './types';
 import * as DataService from './services/dataService';
@@ -70,7 +71,17 @@ function App() {
 
   useEffect(() => {
     if (currentUser) {
+        // 1. Load main data
         loadData();
+        
+        // 2. Sync profile name (Fix for "abc" display issue)
+        // Check equality strictly to prevent potential loop if not handled carefully
+        DataService.syncUserProfile(currentUser).then(updatedUser => {
+            if (updatedUser.displayName !== currentUser.displayName) {
+                setCurrentUser(updatedUser);
+            }
+        });
+
     } else {
         setLoading(false);
     }
