@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import { SheetData, MenuItem, Task, HolterType, HolterStatus, HolterDevice, Consultation, Discharge, VitalsRecord, GlucoseRecord, GlucoseSlotData, CLSRecord, HandoverRecord, User } from './types';
 import * as DataService from './services/dataService';
 import HolterTracking from './components/HolterTracking';
@@ -6,7 +6,9 @@ import MenuGrid from './components/MenuGrid';
 import WeeklyTasks from './components/WeeklyTasks';
 import FloatingAddButton from './components/FloatingAddButton';
 import Modal from './components/Modal';
-import Login from './components/Login';
+
+// Dynamic import cho Login để giảm kích thước bundle ban đầu
+const Login = React.lazy(() => import('./components/Login'));
 
 // Icons using simplified SVG strings
 const Icons = {
@@ -1600,8 +1602,17 @@ function App() {
     { id: '8', label: 'Bàn giao trực', icon: Icons.Handover, color: 'bg-rose-100', action: () => setActiveModal('LIST_HANDOVER') },
   ];
 
+  // Nếu người dùng chưa đăng nhập, trả về Login (được lazy load)
   if (!currentUser) {
-      return <Login onLoginSuccess={(user) => setCurrentUser(user)} />;
+      return (
+        <Suspense fallback={
+          <div className="min-h-screen flex items-center justify-center bg-slate-50">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
+          </div>
+        }>
+          <Login onLoginSuccess={(user) => setCurrentUser(user)} />
+        </Suspense>
+      );
   }
 
   return (
