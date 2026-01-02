@@ -21,7 +21,7 @@ const Icons = {
     Handover: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
 };
 
-type ModalType = 'MENU' | 'TASK' | 'CONSULTATION' | 'DISCHARGE' | 'VITALS' | 'HOLTER_ECG' | 'HOLTER_BP' | 'GLUCOSE' | 'CLS' | 'HANDOVER' | 'LIST_HOLTER_ECG' | 'LIST_HOLTER_BP' | 'LIST_CONSULTATION' | 'DETAIL_CONSULTATION' | 'LIST_DISCHARGE' | 'LIST_VITALS' | 'LIST_GLUCOSE' | 'LIST_CLS' | 'LIST_HANDOVER' | 'SETTINGS' | null;
+type ModalType = 'MENU' | 'TASK' | 'CONSULTATION' | 'DISCHARGE' | 'VITALS' | 'HOLTER_ECG' | 'HOLTER_BP' | 'GLUCOSE' | 'CLS' | 'HANDOVER' | 'LIST_HOLTER_ECG' | 'LIST_HOLTER_BP' | 'LIST_CONSULTATION' | 'DETAIL_CONSULTATION' | 'LIST_DISCHARGE' | 'LIST_VITALS' | 'LIST_GLUCOSE' | 'LIST_CLS' | 'LIST_HANDOVER' | null;
 
 const GLUCOSE_DEFAULT_SLOTS = ["06:00", "11:00", "17:00", "21:00"];
 
@@ -36,10 +36,6 @@ function App() {
   // Filtering state
   const [filterText, setFilterText] = useState('');
   const [doctorFilter, setDoctorFilter] = useState('');
-
-  // Test connection state
-  const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
 
   // Generic form state
   const [formData, setFormData] = useState<any>({});
@@ -110,7 +106,6 @@ function App() {
       setFormData({});
       setSubmitting(false);
       setSelectedConsultation(null);
-      setTestResult(null);
       setFilterText('');
       setDoctorFilter('');
   };
@@ -171,9 +166,9 @@ function App() {
       setSubmitting(false);
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
       if (window.confirm('Bạn có chắc chắn muốn đăng xuất?')) {
-          DataService.setCurrentUser(null);
+          await DataService.logoutFirebase();
           setCurrentUser(null);
           setData(null);
           handleModalClose();
@@ -420,57 +415,6 @@ function App() {
             date: new Date().toISOString().split('T')[0]
           });
           setActiveModal('HANDOVER');
-      }
-  };
-
-  const handleSaveSettings = async (e: React.MouseEvent) => {
-      e.preventDefault();
-      if (formData.apiUrl) {
-          DataService.saveApiUrl(formData.apiUrl);
-          await loadData();
-          handleModalClose();
-      }
-  };
-
-  const handleTestConnection = async () => {
-      const urlToCheck = (formData.apiUrl || DataService.getApiUrl() || '').trim();
-      if (!urlToCheck) {
-        setTestResult({ success: false, message: 'Vui lòng nhập URL trước khi kiểm tra.' });
-        return;
-      }
-      if (!urlToCheck.endsWith('/exec')) {
-          setTestResult({ success: false, message: 'URL không hợp lệ. URL đúng phải kết thúc bằng "/exec".' });
-          return;
-      }
-      setIsTesting(true);
-      setTestResult(null);
-      try {
-          const response = await fetch(urlToCheck, {
-              method: 'GET',
-              mode: 'cors',
-              credentials: 'omit',
-              headers: { 'Accept': 'application/json' },
-              redirect: 'follow'
-          });
-          if (!response.ok) throw new Error(`Lỗi HTTP: ${response.status} ${response.statusText}`);
-          const text = await response.text();
-          if (text.trim().startsWith('<')) {
-               throw new Error('Kết nối bị chặn (CORS).\n\nNguyên nhân: Script chưa được cấp quyền "Bất kỳ ai" (Anyone).');
-          }
-          try {
-              const json = JSON.parse(text);
-              if (json.error) throw new Error(`Lỗi: ${json.error}`);
-              setTestResult({ success: true, message: 'Kết nối thành công!' });
-          } catch (e) {
-              throw new Error('Dữ liệu không phải JSON hợp lệ.');
-          }
-      } catch (err: any) {
-          const msg = err.message === 'Failed to fetch' 
-            ? 'Không thể kết nối (Failed to fetch). Đảm bảo URL đúng và Script đã được Deploy cho "Anyone".'
-            : (err.message || 'Lỗi không xác định.');
-          setTestResult({ success: false, message: msg });
-      } finally {
-          setIsTesting(false);
       }
   };
 
@@ -1252,43 +1196,7 @@ function App() {
       if (activeModal === 'LIST_GLUCOSE') return renderGlucoseList();
       if (activeModal === 'LIST_CLS') return renderCLSList();
       if (activeModal === 'LIST_HANDOVER') return renderHandoverList();
-      if (activeModal === 'SETTINGS') {
-          return (
-              <div className="space-y-4">
-                  <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-800 space-y-2">
-                      <p className="font-bold">Hướng dẫn khắc phục lỗi Offline / Failed to fetch:</p>
-                      <ul className="list-disc pl-4 space-y-1">
-                          <li>Mở Apps Script &gt; Deploy &gt; Manage Deployments.</li>
-                          <li>Chọn bản "Web App" mới nhất &gt; Edit.</li>
-                          <li><b>Execute as:</b> Me (Tôi).</li>
-                          <li><b>Who has access:</b> Anyone (Bất kỳ ai).</li>
-                          <li>Copy <b>Web App URL</b> dán vào bên dưới.</li>
-                      </ul>
-                  </div>
-                  <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Google Web App URL</label>
-                      <input required type="url" className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-primary outline-none text-sm" placeholder="https://script.google.com/macros/s/.../exec" value={formData.apiUrl || ''} onChange={e => handleFormChange('apiUrl', e.target.value)} />
-                  </div>
-                  {testResult && (
-                      <div className={`p-3 rounded-lg text-sm ${testResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                          <p className="font-bold">{testResult.success ? 'Thành công:' : 'Thất bại:'}</p>
-                          <p className="whitespace-pre-line">{testResult.message}</p>
-                      </div>
-                  )}
-                  <div className="flex flex-col space-y-3 pt-2">
-                    <div className="flex justify-between items-center">
-                        <button type="button" onClick={handleTestConnection} disabled={isTesting || !formData.apiUrl} className={`text-sm font-medium px-4 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors flex items-center ${isTesting ? 'opacity-50 cursor-not-allowed' : 'text-slate-700'}`}>
-                            {isTesting ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
-                        </button>
-                        <div className="flex space-x-2">
-                            <button type="button" onClick={handleModalClose} className="px-3 py-2 text-sm text-slate-600 hover:text-slate-800">Hủy</button>
-                            <button onClick={handleSaveSettings} className="px-4 py-2 text-sm font-bold text-white bg-primary rounded-lg hover:bg-sky-600 shadow-sm">Lưu</button>
-                        </div>
-                    </div>
-                  </div>
-              </div>
-          );
-      }
+      
       if (activeModal === 'MENU') {
           const addOptions = [
               { id: 'add_task', label: 'Công việc tuần', icon: Icons.Task, color: 'bg-slate-100', action: () => setActiveModal('TASK') },
@@ -1677,7 +1585,6 @@ function App() {
           case 'LIST_GLUCOSE': return 'Danh sách Đường huyết';
           case 'LIST_CLS': return 'Theo dõi CLS trả sau';
           case 'LIST_HANDOVER': return 'Bàn giao BN trực';
-          case 'SETTINGS': return 'Cài đặt kết nối';
           default: return '';
       }
   };
@@ -1692,11 +1599,6 @@ function App() {
     { id: '7', label: 'Theo dõi CLS', icon: Icons.Icons_CLS, color: 'bg-orange-100', action: () => setActiveModal('LIST_CLS') },
     { id: '8', label: 'Bàn giao trực', icon: Icons.Handover, color: 'bg-rose-100', action: () => setActiveModal('LIST_HANDOVER') },
   ];
-
-  const handleOpenSettings = () => {
-      setFormData({ apiUrl: DataService.getApiUrl() });
-      setActiveModal('SETTINGS');
-  };
 
   if (!currentUser) {
       return <Login onLoginSuccess={(user) => setCurrentUser(user)} />;
@@ -1723,9 +1625,6 @@ function App() {
           </div>
         </div>
         <div className="flex space-x-2 mt-safe">
-            <button onClick={handleOpenSettings} className="p-2 text-slate-500 bg-slate-100 rounded-lg hover:bg-slate-200" title="Cài đặt">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-            </button>
             <button onClick={handleRefresh} disabled={loading} className="flex items-center px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-medium transition-colors" title="Làm mới">
               <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

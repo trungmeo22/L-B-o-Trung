@@ -1,14 +1,29 @@
 
-import { SheetData, HolterType, HolterStatus, HolterDevice, Task, Consultation, Discharge, VitalsRecord, GlucoseRecord, CLSRecord, HandoverRecord, User } from '../types';
+import { SheetData, HolterDevice, Task, Consultation, Discharge, VitalsRecord, GlucoseRecord, CLSRecord, HandoverRecord, User, TrackerRecord, HolterType, HolterStatus } from '../types';
+import { db, auth } from './firebase';
+import { 
+  collection, 
+  getDocs, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  setDoc,
+  query,
+  orderBy,
+  where
+} from 'firebase/firestore';
+import { 
+  signInWithEmailAndPassword, 
+  signOut, 
+  onAuthStateChanged,
+  User as FirebaseUser
+} from 'firebase/auth';
 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
-const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbz0TYgO1INqFe7doW22-W9GXJHySUUPld8O16drEH8z3rwGrduP-O56wio-nrkXctHlMA/exec'; 
-
-const STORAGE_KEY = 'KHOA_NOI_APP_DATA';
 const AUTH_KEY = 'KHOA_NOI_AUTH_USER';
-const API_URL_KEY = 'APP_API_URL';
 
 const INITIAL_DATA: SheetData = {
   lastUpdated: new Date().toISOString(),
@@ -22,7 +37,7 @@ const INITIAL_DATA: SheetData = {
   handovers: [],
   users: [],
   tracker: [
-      { id: '1', key: 'maytrong', bp: '0', ecg: '0' },
+      { id: '1', key: 'maytrong', bp: '1', ecg: '2' },
       { id: '2', key: 'dangdeo', bp: '0', ecg: '0' },
       { id: '3', key: 'dangcho', bp: '0', ecg: '0' },
       { id: '4', key: 'khinaotrong', bp: '--:--', ecg: '--:--' }
@@ -30,116 +45,42 @@ const INITIAL_DATA: SheetData = {
 };
 
 // ============================================================================
-// API HELPERS
+// HELPERS
 // ============================================================================
 
-export const getApiUrl = () => {
-    return localStorage.getItem(API_URL_KEY) || DEFAULT_API_URL;
-};
-
-export const saveApiUrl = (url: string) => {
-    localStorage.setItem(API_URL_KEY, url.trim());
-};
-
-export const isApiConfigured = () => {
-    const url = getApiUrl();
-    return url && url.length > 10 && url.startsWith('http') && url.includes('/exec');
-};
-
-const apiRequest = async (action: 'create' | 'update' | 'delete', type: string, dataOrId: any) => {
-    if (!isApiConfigured()) return;
-    
-    const payload = {
-        action,
-        type,
-        ...(action === 'delete' ? { id: dataOrId } : { data: dataOrId })
-    };
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); 
-
-    try {
-        const response = await fetch(getApiUrl(), {
-            method: 'POST',
-            body: JSON.stringify(payload),
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            redirect: 'follow',
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-            throw new Error(`Server Error: ${response.status}`);
-        }
-        const text = await response.text();
-        return JSON.parse(text);
-    } catch (error) {
-        console.error("API Request Failed:", error);
-        throw error;
+// Helper to sanitize data before sending to Firestore (remove undefined)
+const sanitize = (obj: any) => {
+  const newObj: any = {};
+  Object.keys(obj).forEach(key => {
+    if (obj[key] !== undefined) {
+      newObj[key] = obj[key];
     }
+  });
+  return newObj;
 };
 
-const normalizeData = (data: any): SheetData => {
-    if (!data) return INITIAL_DATA;
-    
-    const formatDate = (d: any) => {
-        if (!d) return '';
-        const str = String(d);
-        if (str === '1899-12-30') return new Date().toISOString().split('T')[0];
-        if (str.includes('T')) return str.split('T')[0];
-        return str;
-    };
+// Calculate date 3 days ago in YYYY-MM-DD format for filtering
+const getThreeDaysAgoISO = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 3);
+    return d.toISOString().split('T')[0];
+};
 
-    const formatDateTime = (d: any) => {
-        if (!d) return '';
-        let str = String(d);
-        if (str === '1899-12-30') return new Date().toISOString().substring(0, 16);
-        if (str.includes('T')) return str.substring(0, 16);
-        return str;
-    };
+// Calculate date 7 days ago in YYYY-MM-DD format for filtering
+const getSevenDaysAgoISO = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split('T')[0];
+};
 
-    const formatTimeOnly = (t: any) => {
-        if (!t) return '';
-        let str = String(t);
-        // Xử lý định dạng ISO "yyyy-MM-ddTHH:mm:ss"
-        if (str.includes('T')) {
-            const timePart = str.split('T')[1];
-            return timePart.substring(0, 5);
-        }
-        // Xử lý định dạng "HH:mm:ss" hoặc "HH:mm"
-        if (str.includes(':')) {
-            return str.split(':').slice(0, 2).join(':');
-        }
-        return str;
-    };
-
-    return {
-        ...INITIAL_DATA,
-        ...data,
-        lastUpdated: data.lastUpdated || new Date().toISOString(),
-        tasks: Array.isArray(data.tasks) ? data.tasks.map((t: any) => ({ ...t, date: formatDate(t.date) })) : [],
-        consultations: Array.isArray(data.consultations) ? data.consultations.map((c: any) => ({ ...c, date: formatDate(c.date) })) : [],
-        discharges: Array.isArray(data.discharges) ? data.discharges.map((d: any) => ({ ...d, date: formatDate(d.date) })) : [],
-        vitals: Array.isArray(data.vitals) ? data.vitals.map((v: any) => ({ 
-            ...v, 
-            date: formatDate(v.date),
-            time: formatTimeOnly(v.time)
-        })) : [],
-        glucoseRecords: Array.isArray(data.glucoseRecords) ? data.glucoseRecords.map((g: any) => ({ ...g, date: formatDate(g.date) })) : [],
-        clsRecords: Array.isArray(data.clsRecords) ? data.clsRecords.map((c: any) => ({ ...c, returnDate: formatDate(c.returnDate) })) : [],
-        handovers: Array.isArray(data.handovers) ? data.handovers.map((h: any) => ({ ...h, date: formatDate(h.date) })) : [],
-        users: Array.isArray(data.users) ? data.users : [],
-        holters: Array.isArray(data.holters) ? data.holters.map((h: any) => ({ 
-            ...h, 
-            installDate: formatDateTime(h.installDate),
-            endTime: h.endTime ? formatDateTime(h.endTime) : ''
-        })) : [],
-        tracker: Array.isArray(data.tracker) ? data.tracker.map((t: any) => ({
-            ...t,
-            bp: String(t.bp || '0'),
-            ecg: String(t.ecg || '0')
-        })) : INITIAL_DATA.tracker
-    };
+// Helper to wait for auth to be ready
+const waitForAuthReady = () => {
+  return new Promise<FirebaseUser | null>((resolve) => {
+     const unsubscribe = onAuthStateChanged(auth, (user) => {
+        unsubscribe();
+        resolve(user);
+     });
+  });
 };
 
 // ============================================================================
@@ -152,70 +93,212 @@ export interface FetchResult {
 }
 
 export const fetchData = async (): Promise<FetchResult> => {
-  let isOffline = false;
-
-  if (isApiConfigured()) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); 
-
-      try {
-          const fetchUrl = `${getApiUrl()}?t=${new Date().getTime()}`;
-          const response = await fetch(fetchUrl, {
-              method: 'GET',
-              mode: 'cors',
-              credentials: 'omit',
-              redirect: 'follow',
-              signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-
-          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-
-          const text = await response.text();
-          if (!text || text.trim().startsWith('<')) {
-              throw new Error("Dữ liệu trả về không đúng định dạng (có thể là HTML lỗi)");
-          }
-
-          const rawData = JSON.parse(text);
-          const normalized = normalizeData(rawData);
-          
-          if (normalized.lastUpdated) {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-          }
-          
-          return { data: normalized, isOffline: false };
-
-      } catch (error) {
-          console.warn("Fetch failed, falling back to local storage:", error);
-          isOffline = true;
+  try {
+      let user = auth.currentUser;
+      if (!user) {
+         user = await waitForAuthReady();
       }
-  } else {
-      isOffline = true;
+
+      if (!user) throw new Error("User not authenticated");
+
+      const cutoffDate = getThreeDaysAgoISO();
+      const sevenDaysAgoDate = getSevenDaysAgoISO();
+
+      // OPTIMIZED QUERY LOGIC - SAFE & CHEAP
+      // 1. Get ALL Active/Pending items (Limited by physical devices, usually < 10 docs)
+      // This ensures 'Tracker' is always accurate even if installed > 3 days ago.
+      const holtersActiveQuery = query(collection(db, 'holters'), where('status', 'in', [HolterStatus.ACTIVE, HolterStatus.PENDING]));
+      
+      // 2. Get ALL Holters created/installed recently (Last 7 days)
+      // UPDATED: Using sevenDaysAgoDate instead of cutoffDate
+      const holtersRecentQuery = query(collection(db, 'holters'), where('installDate', '>=', sevenDaysAgoDate));
+
+      const tasksQuery = collection(db, 'tasks'); // Fetch all tasks
+      const consultationsQuery = query(collection(db, 'consultations'), where('date', '>=', cutoffDate));
+      const dischargesQuery = query(collection(db, 'discharges'), where('date', '>=', cutoffDate));
+      const vitalsQuery = query(collection(db, 'vitals'), where('date', '>=', cutoffDate));
+      
+      // Glucose: Fetch last 7 days
+      const glucoseQuery = query(collection(db, 'glucoseRecords'), where('date', '>=', sevenDaysAgoDate));
+      
+      // CLS: Fetch ALL records (removed date filter)
+      const clsQuery = collection(db, 'clsRecords');
+      
+      const handoversQuery = query(collection(db, 'handovers'), where('date', '>=', cutoffDate));
+      
+      const [
+        holtersActiveSnap,
+        holtersRecentSnap,
+        tasksSnap,
+        consultationsSnap,
+        dischargesSnap,
+        vitalsSnap,
+        glucoseSnap,
+        clsSnap,
+        handoversSnap
+      ] = await Promise.all([
+        getDocs(holtersActiveQuery),
+        getDocs(holtersRecentQuery),
+        getDocs(tasksQuery),
+        getDocs(consultationsQuery),
+        getDocs(dischargesQuery),
+        getDocs(vitalsQuery),
+        getDocs(glucoseQuery),
+        getDocs(clsQuery),
+        getDocs(handoversQuery)
+      ]);
+
+      const mapDocs = <T>(snap: any): T[] => snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
+
+      // MERGE & DEDUPLICATE HOLTERS
+      // We might fetch the same active record twice (once in Active query, once in Recent query).
+      // Use a Map to ensure unique ID.
+      const holterMap = new Map<string, HolterDevice>();
+      
+      mapDocs<HolterDevice>(holtersActiveSnap).forEach(h => holterMap.set(h.id, h));
+      mapDocs<HolterDevice>(holtersRecentSnap).forEach(h => holterMap.set(h.id, h));
+
+      const holters = Array.from(holterMap.values());
+
+      // --- CALCULATE TRACKER DATA ---
+      const now = Date.now();
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+      const safeTime = (dateStr: string) => {
+        if (!dateStr) return 0;
+        const t = new Date(dateStr).getTime();
+        return isNaN(t) ? 0 : t;
+      };
+
+      // Helper function to find the next available 24h slot
+      const findNextSlot = (items: HolterDevice[], totalDevices: number): string => {
+        // 1. Create a list of busy intervals [start, end]
+        const intervals = items
+            .filter(i => i.status === HolterStatus.ACTIVE || i.status === HolterStatus.PENDING)
+            .map(i => {
+                const s = safeTime(i.installDate);
+                return { start: s, end: s + ONE_DAY_MS };
+            })
+            .filter(i => i.start > 0)
+            .sort((a, b) => a.start - b.start);
+
+        // 2. Define a function to check if a specific time 't' is valid for a 24h duration
+        const isSlotAvailable = (t: number): boolean => {
+            const tStart = t;
+            const tEnd = t + ONE_DAY_MS;
+            
+            // Find all intervals that overlap with [tStart, tEnd]
+            // An interval [s, e] overlaps if s < tEnd AND e > tStart
+            const overlapping = intervals.filter(i => i.start < tEnd && i.end > tStart);
+            
+            // If total overlaps are strictly less than devices, it MIGHT be okay, 
+            // but for safety with multiple devices, we check max concurrency.
+            // If overlapping count is 0, it's definitely free.
+            if (overlapping.length === 0) return true;
+
+            // If we have single device and any overlap exists, it's busy.
+            if (totalDevices === 1 && overlapping.length > 0) return false;
+
+            // For multiple devices, we use sweep-line to find max concurrency within the proposed window
+            const points: {time: number, type: number}[] = [];
+            for (const interval of overlapping) {
+                 // Clamp the interval to the window we are checking
+                 const s = Math.max(tStart, interval.start);
+                 const e = Math.min(tEnd, interval.end);
+                 
+                 if (s < e) {
+                     points.push({ time: s, type: 1 });  // +1 busy
+                     points.push({ time: e, type: -1 }); // -1 busy
+                 }
+            }
+            
+            points.sort((a, b) => {
+                if (a.time !== b.time) return a.time - b.time;
+                return a.type - b.type;
+            });
+            
+            let maxBusy = 0;
+            let currentBusy = 0;
+            
+            // Initial busy state at tStart (count intervals that started before tStart and haven't ended)
+            currentBusy = 0; 
+            
+            for (const p of points) {
+                currentBusy += p.type;
+                if (currentBusy > maxBusy) maxBusy = currentBusy;
+            }
+
+            return maxBusy < totalDevices;
+        };
+
+        // 3. Identify candidate start times
+        // Candidates are NOW, and the END time of every existing task (as that's when a resource frees up)
+        const candidates = [now];
+        intervals.forEach(i => {
+            if (i.end > now) candidates.push(i.end);
+        });
+        
+        // Sort candidates chronologically
+        candidates.sort((a, b) => a - b);
+
+        // 4. Check each candidate
+        for (const t of candidates) {
+            if (isSlotAvailable(t)) {
+                return new Date(t).toISOString();
+            }
+        }
+        
+        return '--:--';
+      };
+
+      // 1. Holter HA (BP) - Total 1 device
+      const bpDevices = holters.filter(h => h.type === HolterType.BP);
+      const bpActiveCount = bpDevices.filter(h => h.status === HolterStatus.ACTIVE).length;
+      const bpPendingCount = bpDevices.filter(h => h.status === HolterStatus.PENDING).length;
+      // Note: Logic for 'maytrong' display only counts currently ACTIVE. 
+      // If a device is PENDING but not installed yet, physically it might be free, but logically reserved.
+      // We'll stick to displaying physical status here, but 'NextFree' handles the logic.
+      const bpFreeCount = bpActiveCount > 0 ? 0 : 1;
+      const bpNextFree = findNextSlot(bpDevices, 1);
+
+      // 2. Holter ECG - Total 2 devices
+      const ecgDevices = holters.filter(h => h.type === HolterType.ECG);
+      const ecgActiveCount = ecgDevices.filter(h => h.status === HolterStatus.ACTIVE).length;
+      const ecgPendingCount = ecgDevices.filter(h => h.status === HolterStatus.PENDING).length;
+      let ecgFreeCount = 2 - ecgActiveCount;
+      if (ecgFreeCount < 0) ecgFreeCount = 0;
+      const ecgNextFree = findNextSlot(ecgDevices, 2);
+
+      const computedTracker: TrackerRecord[] = [
+          { id: '1', key: 'maytrong', bp: String(bpFreeCount), ecg: String(ecgFreeCount) },
+          { id: '2', key: 'dangdeo', bp: String(bpActiveCount), ecg: String(ecgActiveCount) },
+          { id: '3', key: 'dangcho', bp: String(bpPendingCount), ecg: String(ecgPendingCount) },
+          { id: '4', key: 'khinaotrong', bp: bpNextFree, ecg: ecgNextFree }
+      ];
+
+      const normalizedData: SheetData = {
+          lastUpdated: new Date().toISOString(),
+          holters: holters,
+          tasks: mapDocs(tasksSnap),
+          consultations: mapDocs(consultationsSnap),
+          discharges: mapDocs(dischargesSnap),
+          vitals: mapDocs(vitalsSnap),
+          glucoseRecords: mapDocs(glucoseSnap),
+          clsRecords: mapDocs(clsSnap),
+          handovers: mapDocs(handoversSnap),
+          users: [], // Users handled by Auth
+          tracker: computedTracker
+      };
+
+      // Check if any snapshot was from cache (basic check, though `metadata.fromCache` is per snapshot)
+      const isFromCache = holtersActiveSnap.metadata.fromCache; 
+
+      return { data: normalizedData, isOffline: isFromCache };
+
+  } catch (error) {
+      console.error("Firebase fetch error:", error);
+      return { data: INITIAL_DATA, isOffline: true };
   }
-
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    try {
-        const parsed = JSON.parse(stored);
-        return { data: parsed, isOffline };
-    } catch (e) {
-        return { data: INITIAL_DATA, isOffline };
-    }
-  }
-  
-  return { data: INITIAL_DATA, isOffline };
-};
-
-const updateLocal = async (modifier: (current: SheetData) => SheetData): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    let current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const newData = modifier(current);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
-    return newData;
-};
-
-export const saveData = async (data: SheetData): Promise<void> => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 };
 
 // AUTH FUNCTIONS
@@ -224,7 +307,8 @@ export const getCurrentUser = (): User | null => {
     return stored ? JSON.parse(stored) : null;
 };
 
-export const setCurrentUser = (user: User | null) => {
+// Internal helper to update local storage for smooth UX
+const updateStoredUser = (user: User | null) => {
     if (user) {
         localStorage.setItem(AUTH_KEY, JSON.stringify(user));
     } else {
@@ -232,201 +316,129 @@ export const setCurrentUser = (user: User | null) => {
     }
 };
 
-// SPECIFIC OPERATIONS
-export const addTaskToSheet = async (task: Task): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.tasks.some((t: any) => String(t.id) === String(task.id));
-
-    const newData = await updateLocal(curr => {
-        const updatedTasks = exists 
-            ? curr.tasks.map(t => String(t.id) === String(task.id) ? task : t)
-            : [...curr.tasks, task];
-        return { ...curr, tasks: updatedTasks };
-    });
-    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'tasks', task).catch(console.error);
-    return newData;
+export const loginFirebase = async (username: string): Promise<User> => {
+    const email = `${username}@khoanoi.internal`;
+    throw new Error("Use loginWithPassword instead");
 };
 
-export const deleteTask = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        tasks: current.tasks.filter(t => t.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'tasks', id).catch(console.error);
-    return newData;
-};
-
-export const addConsultationToSheet = async (consultation: Consultation): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.consultations.some((c: any) => String(c.id) === String(consultation.id));
-
-    const newData = await updateLocal(curr => {
-        const updated = exists 
-            ? curr.consultations.map(c => String(c.id) === String(consultation.id) ? consultation : c)
-            : [...curr.consultations, consultation];
-        return { ...curr, consultations: updated };
-    });
-    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'consultations', consultation).catch(console.error);
-    return newData;
-};
-
-export const deleteConsultation = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        consultations: current.consultations.filter(c => c.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'consultations', id).catch(console.error);
-    return newData;
-};
-
-export const addDischargeToSheet = async (discharge: Discharge): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.discharges.some((d: any) => String(d.id) === String(discharge.id));
-
-    const newData = await updateLocal(curr => {
-        const updated = exists 
-            ? curr.discharges.map(d => String(d.id) === String(discharge.id) ? discharge : d)
-            : [...curr.discharges, discharge];
-        return { ...curr, discharges: updated };
-    });
-    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'discharges', discharge).catch(console.error);
-    return newData;
-};
-
-export const deleteDischarge = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        discharges: current.discharges.filter(d => d.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'discharges', id).catch(console.error);
-    return newData;
-};
-
-export const addVitalsToSheet = async (vital: VitalsRecord): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.vitals.some((v: any) => String(v.id) === String(vital.id));
-
-    const newData = await updateLocal(curr => {
-        const updated = exists 
-            ? curr.vitals.map(v => String(v.id) === String(vital.id) ? vital : v)
-            : [...curr.vitals, vital];
-        return { ...curr, vitals: updated };
-    });
-    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'vitals', vital).catch(console.error);
-    return newData;
-};
-
-export const deleteVitals = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        vitals: current.vitals.filter(v => v.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'vitals', id).catch(console.error);
-    return newData;
-};
-
-export const addGlucoseToSheet = async (record: GlucoseRecord): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.glucoseRecords.some((g: any) => String(g.id) === String(record.id));
-
-    const newData = await updateLocal(curr => {
-        const updated = exists 
-            ? curr.glucoseRecords.map(g => String(g.id) === String(record.id) ? record : g)
-            : [...curr.glucoseRecords, record];
-        return { ...curr, glucoseRecords: updated };
-    });
-    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'glucoseRecords', record).catch(console.error);
-    return newData;
-};
-
-export const deleteGlucose = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        glucoseRecords: current.glucoseRecords.filter(g => g.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'glucoseRecords', id).catch(console.error);
-    return newData;
-};
-
-export const addHolterToSheet = async (holter: HolterDevice): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.holters.some((h: any) => String(h.id) === String(holter.id));
-
-    const newData = await updateLocal(curr => {
-        const updated = exists 
-            ? curr.holters.map(h => String(h.id) === String(holter.id) ? holter : h)
-            : [...curr.holters, holter];
-        return { ...curr, holters: updated };
-    });
-    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'holters', holter).catch(console.error);
-    return newData;
-};
-
-export const deleteHolter = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        holters: current.holters.filter(h => h.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'holters', id).catch(console.error);
-    return newData;
-};
-
-export const addCLSToSheet = async (record: CLSRecord): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.clsRecords.some((c: any) => String(c.id) === String(record.id));
-
-    const newData = await updateLocal(curr => {
-        const updated = exists 
-            ? curr.clsRecords.map(c => String(c.id) === String(record.id) ? record : c)
-            : [...curr.clsRecords, record];
-        return { ...curr, clsRecords: updated };
-    });
-    
-    if (isApiConfigured()) {
-        apiRequest(exists ? 'update' : 'create', 'clsRecords', record).catch(err => {
-            console.error("Lỗi khi đồng bộ CLS lên Sheet:", err);
-        });
+export const loginWithPassword = async (username: string, password: string): Promise<User> => {
+    const email = `${username}@khoanoi.internal`;
+    try {
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const fbUser = userCredential.user;
+        
+        const user: User = {
+            id: fbUser.uid,
+            username: username,
+            displayName: fbUser.displayName || username,
+            role: 'staff' // Default role
+        };
+        updateStoredUser(user);
+        return user;
+    } catch (error: any) {
+        console.error("Login failed", error);
+        throw error;
     }
-    return newData;
 };
 
-export const deleteCLS = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        clsRecords: current.clsRecords.filter(c => c.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'clsRecords', id).catch(console.error);
-    return newData;
+export const logoutFirebase = async () => {
+    await signOut(auth);
+    updateStoredUser(null);
 };
 
-export const addHandoverToSheet = async (record: HandoverRecord): Promise<SheetData> => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const current = stored ? JSON.parse(stored) : INITIAL_DATA;
-    const exists = current.handovers.some((h: any) => String(h.id) === String(record.id));
+export const setCurrentUser = (user: User | null) => {
+   updateStoredUser(user);
+};
 
-    const newData = await updateLocal(curr => {
-        const updated = exists 
-            ? curr.handovers.map(h => String(h.id) === String(record.id) ? record : h)
-            : [...curr.handovers, record];
-        return { ...curr, handovers: updated };
-    });
+// API URL Functions (No longer needed but kept for interface compatibility if any)
+export const getApiUrl = () => '';
+export const saveApiUrl = (url: string) => {};
+export const isApiConfigured = () => true;
+
+// GENERIC FIRESTORE HELPERS
+const addData = async (collectionName: string, item: any): Promise<SheetData> => {
+    const docRef = await addDoc(collection(db, collectionName), sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+
+const updateData = async (collectionName: string, item: any): Promise<SheetData> => {
+    const docRef = doc(db, collectionName, item.id);
+    await updateDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+
+const deleteData = async (collectionName: string, id: string): Promise<SheetData> => {
+    await deleteDoc(doc(db, collectionName, id));
+    const res = await fetchData();
+    return res.data;
+};
+
+// SPECIFIC OPERATIONS
+
+export const addTaskToSheet = async (task: Task): Promise<SheetData> => {
+    const docRef = doc(db, 'tasks', task.id);
+    await setDoc(docRef, sanitize(task));
     
-    if (isApiConfigured()) apiRequest(exists ? 'update' : 'create', 'handovers', record).catch(console.error);
-    return newData;
+    const res = await fetchData();
+    return res.data;
 };
 
-export const deleteHandover = async (id: string): Promise<SheetData> => {
-    const newData = await updateLocal(current => ({
-        ...current,
-        handovers: current.handovers.filter(h => h.id !== id)
-    }));
-    if (isApiConfigured()) apiRequest('delete', 'handovers', id).catch(console.error);
-    return newData;
+export const deleteTask = async (id: string): Promise<SheetData> => deleteData('tasks', id);
+
+export const addConsultationToSheet = async (item: Consultation): Promise<SheetData> => {
+    const docRef = doc(db, 'consultations', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
 };
+export const deleteConsultation = async (id: string): Promise<SheetData> => deleteData('consultations', id);
+
+export const addDischargeToSheet = async (item: Discharge): Promise<SheetData> => {
+    const docRef = doc(db, 'discharges', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+export const deleteDischarge = async (id: string): Promise<SheetData> => deleteData('discharges', id);
+
+export const addVitalsToSheet = async (item: VitalsRecord): Promise<SheetData> => {
+    const docRef = doc(db, 'vitals', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+export const deleteVitals = async (id: string): Promise<SheetData> => deleteData('vitals', id);
+
+export const addGlucoseToSheet = async (item: GlucoseRecord): Promise<SheetData> => {
+    const docRef = doc(db, 'glucoseRecords', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+export const deleteGlucose = async (id: string): Promise<SheetData> => deleteData('glucoseRecords', id);
+
+export const addHolterToSheet = async (item: HolterDevice): Promise<SheetData> => {
+    const docRef = doc(db, 'holters', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+export const deleteHolter = async (id: string): Promise<SheetData> => deleteData('holters', id);
+
+export const addCLSToSheet = async (item: CLSRecord): Promise<SheetData> => {
+    const docRef = doc(db, 'clsRecords', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+export const deleteCLS = async (id: string): Promise<SheetData> => deleteData('clsRecords', id);
+
+export const addHandoverToSheet = async (item: HandoverRecord): Promise<SheetData> => {
+    const docRef = doc(db, 'handovers', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+export const deleteHandover = async (id: string): Promise<SheetData> => deleteData('handovers', id);

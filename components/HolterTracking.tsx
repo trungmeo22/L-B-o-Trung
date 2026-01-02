@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { TrackerRecord } from '../types';
 
@@ -20,11 +21,11 @@ const HolterTracking: React.FC<HolterTrackingProps> = ({ trackerData = [] }) => 
 
         const hh = String(date.getHours()).padStart(2, '0');
         const mm = String(date.getMinutes()).padStart(2, '0');
-        const ss = String(date.getSeconds()).padStart(2, '0');
         const DD = String(date.getDate()).padStart(2, '0');
         const MM = String(date.getMonth() + 1).padStart(2, '0');
+        const YYYY = date.getFullYear();
 
-        return `${hh}:${mm}:${ss} ${DD}/${MM}`;
+        return `${hh}:${mm} ${DD}/${MM}/${YYYY}`;
       } catch (e) {
         return val;
       }
@@ -76,8 +77,8 @@ const HolterTracking: React.FC<HolterTrackingProps> = ({ trackerData = [] }) => 
             </tr>
             <tr className="bg-slate-50">
               <td className="px-4 py-3 font-medium text-slate-700">Khi nào trống</td>
-              <td className="px-4 py-3 text-center text-sm font-semibold text-primary">{getValue('khinaotrong', 'bp')}</td>
-              <td className="px-4 py-3 text-center text-sm font-semibold text-primary">{getValue('khinaotrong', 'ecg')}</td>
+              <td className="px-4 py-3 text-center text-xs font-semibold text-primary">{getValue('khinaotrong', 'bp')}</td>
+              <td className="px-4 py-3 text-center text-xs font-semibold text-primary">{getValue('khinaotrong', 'ecg')}</td>
             </tr>
           </tbody>
         </table>
