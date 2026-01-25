@@ -4,8 +4,8 @@
   "description": "Quản lý công việc và theo dõi bệnh nhân Khoa Nội",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#0ea5e9",
+  "background_color": "#fef2f2",
+  "theme_color": "#dc2626",
   "orientation": "portrait",
   "icons": [
     {

@@ -115,6 +115,56 @@ export interface TrackerRecord {
     ecg: string;
 }
 
+// --- Duty Report Interfaces (Báo cáo trực) ---
+
+export interface PatientTransfer { // II. Bệnh nhân chuyển
+  id: string;
+  stt: string;
+  name: string;
+  age: string;
+  room: string;
+  destination: string; // Nơi chuyển
+}
+
+export interface PatientProgression { // III. Bệnh nhân diễn biến
+  id: string;
+  stt: string;
+  name: string;
+  age: string;
+  room: string;
+  progression: string; // Diễn biến
+}
+
+export interface PatientAdmission { // IV. Bệnh nhân vào
+  id: string;
+  stt: string;
+  name: string;
+  age: string;
+  room: string;
+  diagnosis: string; // Chẩn đoán
+}
+
+export interface DutyReportStats { // I. Tình hình khoa
+  old: string;
+  in: string;
+  out: string;
+  transferIn: string; // Chuyển khoa
+  transferOut: string; // Chuyển viện
+  remaining: string;
+}
+
+export interface DutyReport {
+  id: string;
+  date: string; // YYYY-MM-DD (Ngày báo cáo)
+  doctor: string; // Bác sĩ trực
+  nurse: string; // Điều dưỡng trực
+  stats: DutyReportStats;
+  transfers: PatientTransfer[];
+  progressions: PatientProgression[];
+  admissions: PatientAdmission[];
+  notes: string; // V. Khác
+}
+
 export interface MenuItem {
   id: string;
   label: string;
@@ -132,6 +182,7 @@ export type SheetData = {
   glucoseRecords: GlucoseRecord[];
   clsRecords: CLSRecord[];
   handovers: HandoverRecord[];
+  dutyReports: DutyReport[]; // Added duty reports
   tracker: TrackerRecord[];
   users: User[];
   lastUpdated: string;

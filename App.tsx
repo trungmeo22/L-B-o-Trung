@@ -1,12 +1,15 @@
 
 import React, { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
-import { SheetData, MenuItem, Task, HolterType, HolterStatus, HolterDevice, Consultation, Discharge, VitalsRecord, GlucoseRecord, GlucoseSlotData, CLSRecord, HandoverRecord, User } from './types';
+import { SheetData, MenuItem, Task, HolterType, HolterStatus, HolterDevice, Consultation, Discharge, VitalsRecord, GlucoseRecord, GlucoseSlotData, CLSRecord, HandoverRecord, DutyReport, User, PatientTransfer, PatientProgression, PatientAdmission } from './types';
 import * as DataService from './services/dataService';
 import HolterTracking from './components/HolterTracking';
 import MenuGrid from './components/MenuGrid';
 import WeeklyTasks from './components/WeeklyTasks';
 import FloatingAddButton from './components/FloatingAddButton';
 import Modal from './components/Modal';
+
+// Declare pdfMake globally (loaded from CDN in index.html)
+declare var pdfMake: any;
 
 // Dynamic import cho Login để giảm kích thước bundle ban đầu
 const Login = React.lazy(() => import('./components/Login'));
@@ -21,10 +24,11 @@ const Icons = {
     Glucose: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>,
     Task: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>,
     Icons_CLS: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>,
-    Handover: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+    Handover: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>,
+    Report: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
 };
 
-type ModalType = 'MENU' | 'TASK' | 'CONSULTATION' | 'DISCHARGE' | 'VITALS' | 'HOLTER_ECG' | 'HOLTER_BP' | 'GLUCOSE' | 'CLS' | 'HANDOVER' | 'LIST_HOLTER_ECG' | 'LIST_HOLTER_BP' | 'LIST_CONSULTATION' | 'DETAIL_CONSULTATION' | 'LIST_DISCHARGE' | 'LIST_VITALS' | 'LIST_GLUCOSE' | 'LIST_CLS' | 'LIST_HANDOVER' | null;
+type ModalType = 'MENU' | 'TASK' | 'CONSULTATION' | 'DISCHARGE' | 'VITALS' | 'HOLTER_ECG' | 'HOLTER_BP' | 'GLUCOSE' | 'CLS' | 'HANDOVER' | 'LIST_HOLTER_ECG' | 'LIST_HOLTER_BP' | 'LIST_CONSULTATION' | 'DETAIL_CONSULTATION' | 'LIST_DISCHARGE' | 'LIST_VITALS' | 'LIST_GLUCOSE' | 'LIST_CLS' | 'LIST_HANDOVER' | 'LIST_DUTY_REPORT' | 'DUTY_REPORT_FORM' | null;
 
 const GLUCOSE_DEFAULT_SLOTS = ["06:00", "11:00", "17:00", "21:00"];
 
@@ -39,6 +43,7 @@ function App() {
   // Filtering state
   const [filterText, setFilterText] = useState('');
   const [doctorFilter, setDoctorFilter] = useState('');
+  const [reportDateFilter, setReportDateFilter] = useState('');
 
   // Generic form state
   const [formData, setFormData] = useState<any>({});
@@ -121,11 +126,13 @@ function App() {
       setSelectedConsultation(null);
       setFilterText('');
       setDoctorFilter('');
+      setReportDateFilter('');
   };
 
   const handleModalBack = () => {
       setFilterText(''); 
       setDoctorFilter('');
+      setReportDateFilter('');
       if (activeModal === 'DETAIL_CONSULTATION' || activeModal === 'CONSULTATION') {
           setActiveModal('LIST_CONSULTATION');
           setFormData({});
@@ -170,6 +177,12 @@ function App() {
       }
       if (activeModal === 'HANDOVER') {
           setActiveModal('LIST_HANDOVER');
+          setFormData({});
+          setSubmitting(false);
+          return;
+      }
+      if (activeModal === 'DUTY_REPORT_FORM') {
+          setActiveModal('LIST_DUTY_REPORT');
           setFormData({});
           setSubmitting(false);
           return;
@@ -345,6 +358,11 @@ function App() {
     setActiveModal('HANDOVER');
   };
 
+  const handleEditDutyReport = (item: DutyReport) => {
+    setFormData({ ...item });
+    setActiveModal('DUTY_REPORT_FORM');
+  };
+
   const handleToggleCLSStatus = async (item: CLSRecord, e: React.MouseEvent) => {
     e.stopPropagation();
     const updatedRecord: CLSRecord = {
@@ -429,6 +447,161 @@ function App() {
           });
           setActiveModal('HANDOVER');
       }
+      if (type === 'DUTY_REPORT_FORM') {
+          setFormData({
+            date: new Date().toISOString().split('T')[0],
+            stats: { old: '', in: '', out: '', transferIn: '', transferOut: '', remaining: '' },
+            transfers: [],
+            progressions: [],
+            admissions: [],
+            notes: ''
+          });
+          setActiveModal('DUTY_REPORT_FORM');
+      }
+  };
+
+  // Helper to generate PDF using pdfMake
+  const generateDutyReportPDF = (report: DutyReport) => {
+    if (!pdfMake) {
+      alert("Thư viện tạo PDF chưa được tải. Vui lòng kiểm tra kết nối mạng.");
+      return;
+    }
+    
+    // Format Date: YYYY-MM-DD -> DD/MM/YYYY
+    const dateParts = report.date.split('-');
+    const dateFormatted = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+
+    // Safely get arrays
+    const transfers = Array.isArray(report.transfers) ? report.transfers : [];
+    const progressions = Array.isArray(report.progressions) ? report.progressions : [];
+    const admissions = Array.isArray(report.admissions) ? report.admissions : [];
+
+    // Table Header Style
+    const tableHeaderStyle = { bold: true, fontSize: 10, color: 'black', alignment: 'center', fillColor: '#f3f4f6' };
+    const tableCellStyle = { fontSize: 10, color: 'black' };
+
+    // Function to map data to table rows
+    const mapTransferRows = () => transfers.map(t => [t.stt, t.name, t.age, t.room, t.destination]);
+    const mapProgressionRows = () => progressions.map(t => [t.stt, t.name, t.age, t.room, t.progression]);
+    const mapAdmissionRows = () => admissions.map(t => [t.stt, t.name, t.age, t.room, t.diagnosis]);
+
+    // Ensure rows are empty strings if undefined
+    const safeStat = (val: string) => val || '';
+
+    const docDefinition = {
+      content: [
+        { text: 'BỆNH VIỆN HNĐK NGHỆ AN – GIAI ĐOẠN 2', style: 'header', alignment: 'left' },
+        { text: 'KHOA NỘI TỔNG HỢP', style: 'subheader', alignment: 'left' },
+        { text: `BÁO CÁO TRỰC NGÀY ${dateFormatted}`, style: 'title', alignment: 'center', margin: [0, 20, 0, 10] },
+        {
+           columns: [
+             { text: `Bác sĩ trực: ${report.doctor || ''}`, width: '*', fontSize: 11 },
+             { text: `Điều dưỡng trực: ${report.nurse || ''}`, width: '*', fontSize: 11 }
+           ],
+           margin: [0, 0, 0, 15]
+        },
+        
+        { text: 'I. Tình hình khoa', style: 'sectionHeader' },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['*', '*', '*', '*', '*', '*'],
+            body: [
+              [
+                { text: 'Cũ', style: tableHeaderStyle }, 
+                { text: 'Vào', style: tableHeaderStyle }, 
+                { text: 'Ra', style: tableHeaderStyle }, 
+                { text: 'Chuyển khoa', style: tableHeaderStyle }, 
+                { text: 'Chuyển viện', style: tableHeaderStyle }, 
+                { text: 'Còn', style: tableHeaderStyle }
+              ],
+              [
+                safeStat(report.stats?.old), 
+                safeStat(report.stats?.in), 
+                safeStat(report.stats?.out), 
+                safeStat(report.stats?.transferIn), 
+                safeStat(report.stats?.transferOut), 
+                safeStat(report.stats?.remaining)
+              ]
+            ]
+          },
+          margin: [0, 5, 0, 15]
+        },
+
+        { text: 'II. Bệnh nhân chuyển', style: 'sectionHeader' },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['auto', '*', 'auto', 'auto', '*'],
+            body: [
+              [
+                { text: 'STT', style: tableHeaderStyle }, 
+                { text: 'Tên', style: tableHeaderStyle }, 
+                { text: 'Tuổi', style: tableHeaderStyle }, 
+                { text: 'Phòng', style: tableHeaderStyle }, 
+                { text: 'Nơi chuyển', style: tableHeaderStyle }
+              ],
+              ...(transfers.length > 0 ? mapTransferRows() : [['', '', '', '', '']])
+            ]
+          },
+          margin: [0, 5, 0, 15]
+        },
+
+        { text: 'III. Bệnh nhân diễn biến', style: 'sectionHeader' },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['auto', '*', 'auto', 'auto', '*'],
+            body: [
+              [
+                { text: 'STT', style: tableHeaderStyle }, 
+                { text: 'Tên', style: tableHeaderStyle }, 
+                { text: 'Tuổi', style: tableHeaderStyle }, 
+                { text: 'Phòng', style: tableHeaderStyle }, 
+                { text: 'Diễn biến', style: tableHeaderStyle }
+              ],
+              ...(progressions.length > 0 ? mapProgressionRows() : [['', '', '', '', '']])
+            ]
+          },
+          margin: [0, 5, 0, 15]
+        },
+
+        { text: 'IV. Bệnh nhân vào', style: 'sectionHeader' },
+        {
+          table: {
+            headerRows: 1,
+            widths: ['auto', '*', 'auto', 'auto', '*'],
+            body: [
+              [
+                { text: 'STT', style: tableHeaderStyle }, 
+                { text: 'Tên', style: tableHeaderStyle }, 
+                { text: 'Tuổi', style: tableHeaderStyle }, 
+                { text: 'Phòng', style: tableHeaderStyle }, 
+                { text: 'Chẩn đoán', style: tableHeaderStyle }
+              ],
+              ...(admissions.length > 0 ? mapAdmissionRows() : [['', '', '', '', '']])
+            ]
+          },
+          margin: [0, 5, 0, 15]
+        },
+
+        { text: 'V. Khác', style: 'sectionHeader' },
+        { text: report.notes || '', fontSize: 11, margin: [0, 5, 0, 0] },
+        { text: 'CHỮ KÝ BÁC SĨ TRỰC', style: 'sectionHeader', alignment: 'left', margin: [0, 50, 0, 0] }
+
+      ],
+      styles: {
+        header: { fontSize: 11, bold: true, margin: [0, 0, 0, 2] },
+        subheader: { fontSize: 11, bold: true, margin: [0, 0, 0, 5] },
+        title: { fontSize: 14, bold: true },
+        sectionHeader: { fontSize: 11, bold: true, margin: [0, 5, 0, 2] }
+      },
+      defaultStyle: {
+        font: 'Roboto' // pdfmake uses Roboto by default in vfs_fonts
+      }
+    };
+
+    pdfMake.createPdf(docDefinition).download(`bao-cao-truc-${report.date}.pdf`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -553,6 +726,22 @@ function App() {
                     newData = await DataService.addHandoverToSheet(newHandover);
                 }
                 break;
+            case 'DUTY_REPORT_FORM':
+                if (formData.date) {
+                    const newReport: DutyReport = {
+                        id: formData.id || Date.now().toString(),
+                        date: formData.date,
+                        doctor: formData.doctor || '',
+                        nurse: formData.nurse || '',
+                        stats: formData.stats || { old: '', in: '', out: '', transferIn: '', transferOut: '', remaining: '' },
+                        transfers: formData.transfers || [],
+                        progressions: formData.progressions || [],
+                        admissions: formData.admissions || [],
+                        notes: formData.notes || ''
+                    };
+                    newData = await DataService.addDutyReportToSheet(newReport);
+                }
+                break;
         }
         
         if (newData) {
@@ -567,6 +756,7 @@ function App() {
         else if (activeModal === 'HOLTER_BP') setActiveModal('LIST_HOLTER_BP');
         else if (activeModal === 'CLS') setActiveModal('LIST_CLS');
         else if (activeModal === 'HANDOVER') setActiveModal('LIST_HANDOVER');
+        else if (activeModal === 'DUTY_REPORT_FORM') setActiveModal('LIST_DUTY_REPORT');
         else handleModalClose();
 
       } catch (err) {
@@ -577,6 +767,7 @@ function App() {
           setFormData({}); 
           setFilterText(''); 
           setDoctorFilter('');
+          setReportDateFilter('');
       }
   };
 
@@ -601,7 +792,7 @@ function App() {
               <input 
                 type="text" 
                 placeholder={placeholder}
-                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full pl-10 pr-4 py-2 bg-red-50/50 border border-red-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                 value={filterText}
                 onChange={e => setFilterText(e.target.value)}
               />
@@ -617,13 +808,13 @@ function App() {
                 <input 
                   type="text" 
                   placeholder="Lọc theo tên bác sĩ..."
-                  className="w-full pl-10 pr-4 py-2 bg-blue-50/50 border border-blue-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                  className="w-full pl-10 pr-4 py-2 bg-red-50/50 border border-red-100 rounded-xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                   value={doctorFilter}
                   onChange={e => setDoctorFilter(e.target.value)}
                 />
-                <svg className="w-5 h-5 absolute left-3 top-2.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                <svg className="w-5 h-5 absolute left-3 top-2.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                 {doctorFilter && (
-                    <button onClick={() => setDoctorFilter('')} className="absolute right-3 top-2.5 text-blue-400 hover:text-blue-600">
+                    <button onClick={() => setDoctorFilter('')} className="absolute right-3 top-2.5 text-red-400 hover:text-red-600">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                 )}
@@ -792,6 +983,96 @@ function App() {
     );
   };
 
+  const renderDutyReportList = () => {
+    // Sort descending by date
+    let items = [...(data?.dutyReports || [])].sort((a, b) => b.date.localeCompare(a.date));
+
+    // Filter by date if selected
+    if (reportDateFilter) {
+        items = items.filter(item => item.date === reportDateFilter);
+    } else {
+        // Show only 2 most recent days by default
+        const uniqueDates = Array.from(new Set(items.map(item => item.date)));
+        const top2Dates = uniqueDates.slice(0, 2);
+        items = items.filter(item => top2Dates.includes(item.date));
+    }
+
+    return (
+        <div className="space-y-4 pt-2">
+             <div className="flex items-center justify-between mb-4">
+               <button onClick={handleModalClose} className="text-sm text-slate-500 flex items-center">
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                  Đóng
+               </button>
+               <button onClick={() => handleAddFromList('DUTY_REPORT_FORM')} className="flex items-center px-3 py-1.5 bg-teal-500 text-white text-xs font-bold rounded-full shadow-sm active:scale-95 transition-transform">
+                  <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  Thêm mới
+               </button>
+            </div>
+
+            {/* NEW SEARCH BLOCK */}
+             <div className="bg-white p-3 rounded-xl border border-red-100 shadow-sm mb-4">
+                <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Tìm báo cáo theo ngày</label>
+                <div className="relative">
+                     <input
+                        type="date"
+                        className="w-full px-3 py-2 bg-red-50/50 border-none rounded-lg text-sm outline-none focus:ring-2 focus:ring-teal-500/20 text-slate-700 font-bold"
+                        value={reportDateFilter}
+                        onChange={(e) => setReportDateFilter(e.target.value)}
+                     />
+                     {reportDateFilter && (
+                        <button
+                            onClick={() => setReportDateFilter('')}
+                            className="absolute right-10 top-2 text-slate-400 hover:text-red-500"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                     )}
+                </div>
+            </div>
+
+            <p className="text-xs text-slate-500 text-center uppercase font-bold tracking-wider mb-2">
+                {reportDateFilter ? `Kết quả tìm kiếm: ${items.length}` : 'Danh sách báo cáo (2 ngày gần nhất)'}
+            </p>
+
+            {items.length === 0 ? (
+                <div className="text-center text-slate-400 py-8 border border-dashed rounded-lg">
+                    {reportDateFilter ? 'Không tìm thấy báo cáo ngày này' : 'Chưa có báo cáo nào'}
+                </div>
+            ) : (
+                items.map(item => {
+                    const dateFormatted = item.date.split('-').reverse().join('/');
+                    return (
+                        <div 
+                          key={item.id} 
+                          onClick={() => handleEditDutyReport(item)} 
+                          className="p-4 rounded-xl border shadow-sm bg-white border-l-4 border-l-teal-500 mb-3 animate-fade-in cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition-colors"
+                        >
+                             <div className="flex justify-between items-center">
+                                <div>
+                                    <p className="font-bold text-slate-800 text-lg">Ngày {dateFormatted}</p>
+                                    <div className="text-xs text-slate-500 mt-1 space-y-0.5">
+                                        <p>BS trực: <span className="font-medium text-slate-700">{item.doctor}</span></p>
+                                        <p>ĐD trực: <span className="font-medium text-slate-700">{item.nurse}</span></p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                     <button onClick={(e) => { e.stopPropagation(); generateDutyReportPDF(item); }} className="p-2 text-white bg-teal-500 hover:bg-teal-600 rounded-lg shadow-sm active:scale-95 transition-all" title="Tải PDF">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                    </button>
+                                     <button onClick={(e) => { e.stopPropagation(); handleEditDutyReport(item); }} className="p-2 text-slate-400 hover:text-blue-500 bg-red-50/50 rounded-lg transition-colors">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                    </button>
+                                </div>
+                             </div>
+                        </div>
+                    );
+                })
+            )}
+        </div>
+    );
+  };
+
   const renderHandoverList = () => {
     const items = [...(data?.handovers || [])]
         .filter(h => !filterText.trim() || String(h.patientName || '').toLowerCase().includes(filterText.toLowerCase().trim()) || String(h.room || '').toLowerCase().includes(filterText.toLowerCase().trim()))
@@ -831,15 +1112,15 @@ function App() {
                                             <p className="text-xs font-semibold text-primary">{item.room}</p>
                                         </div>
                                         <div className="flex space-x-1 pl-2">
-                                            <button onClick={(e) => handleEditHandover(item, e)} className="p-1.5 text-slate-400 hover:text-blue-500 bg-slate-50 rounded-lg">
+                                            <button onClick={(e) => handleEditHandover(item, e)} className="p-1.5 text-slate-400 hover:text-blue-500 bg-red-50/50 rounded-lg">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                             </button>
-                                            <button onClick={(e) => handleDeleteHandover(item.id, e)} className="p-1.5 text-slate-400 hover:text-red-500 bg-slate-50 rounded-lg">
+                                            <button onClick={(e) => handleDeleteHandover(item.id, e)} className="p-1.5 text-slate-400 hover:text-red-500 bg-red-50/50 rounded-lg">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                             </button>
                                         </div>
                                     </div>
-                                    <div className="text-sm text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-100 italic whitespace-pre-wrap">
+                                    <div className="text-sm text-slate-700 bg-red-50/50 p-2 rounded-lg border border-red-100 italic whitespace-pre-wrap">
                                         {item.content}
                                     </div>
                                     {item.doctor && (
@@ -959,7 +1240,7 @@ function App() {
                                         <div className="flex-1">
                                             <p className="font-bold text-slate-800">{item.patientName}</p>
                                             <p className="text-xs text-slate-600 mt-1 font-semibold text-primary">{item.room}</p>
-                                            {item.note && <p className="text-xs text-slate-500 mt-1 italic bg-slate-50 p-1.5 rounded">"{item.note}"</p>}
+                                            {item.note && <p className="text-xs text-slate-500 mt-1 italic bg-red-50/50 p-1.5 rounded">"{item.note}"</p>}
                                         </div>
                                         <div className="flex items-center space-x-1 pl-2">
                                              <button onClick={(e) => handleEditDischarge(item, e)} className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
@@ -1052,7 +1333,7 @@ function App() {
                                             </div>
                                         </div>
                                         {item.note && (
-                                          <div className="mt-2 text-[11px] text-slate-500 italic bg-slate-50 p-1.5 rounded border border-slate-100">
+                                          <div className="mt-2 text-[11px] text-slate-500 italic bg-red-50/50 p-1.5 rounded border border-red-100">
                                             Chú thích: {item.note}
                                           </div>
                                         )}
@@ -1114,10 +1395,10 @@ function App() {
                                                 {item.note && <p className="text-xs text-slate-500 italic">Ghi chú: {item.note}</p>}
                                             </div>
                                             <div className="flex space-x-1">
-                                                <button onClick={(e) => handleEditGlucose(item, e)} className="text-slate-400 hover:text-blue-500 p-1.5 bg-slate-50 rounded-lg">
+                                                <button onClick={(e) => handleEditGlucose(item, e)} className="text-slate-400 hover:text-blue-500 p-1.5 bg-red-50/50 rounded-lg">
                                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                                                 </button>
-                                                <button onClick={(e) => handleDeleteGlucose(item.id, e)} className="text-slate-400 hover:text-red-500 p-1.5 bg-slate-50 rounded-lg">
+                                                <button onClick={(e) => handleDeleteGlucose(item.id, e)} className="text-slate-400 hover:text-red-500 p-1.5 bg-red-50/50 rounded-lg">
                                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                                 </button>
                                             </div>
@@ -1128,7 +1409,7 @@ function App() {
                                                 <p className="text-center text-xs text-slate-400 py-2">Chưa chọn mốc giờ nào</p>
                                             ) : (
                                                 slots.map((slot, idx) => (
-                                                    <div key={idx} className="flex flex-col bg-slate-50/50 p-2.5 rounded-lg border border-slate-100">
+                                                    <div key={idx} className="flex flex-col bg-red-50/50 p-2.5 rounded-lg border border-red-100">
                                                         <div className="flex justify-between items-center mb-1">
                                                             <span className="text-sm font-bold text-slate-700 bg-white px-2 py-0.5 rounded shadow-sm">{slot.time}</span>
                                                             <span className={`text-sm font-bold ${slot.testResult ? 'text-blue-600' : 'text-red-400 italic'}`}>
@@ -1168,7 +1449,7 @@ function App() {
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                   Quay lại danh sách
               </div>
-              <div className="bg-white rounded-xl border border-slate-100 p-4 shadow-sm space-y-4">
+              <div className="bg-white rounded-xl border border-red-100 p-4 shadow-sm space-y-4">
                   <div>
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Bệnh nhân</h4>
                       <p className="text-lg font-bold text-slate-800">{selectedConsultation.patientName}</p>
@@ -1209,6 +1490,7 @@ function App() {
       if (activeModal === 'LIST_GLUCOSE') return renderGlucoseList();
       if (activeModal === 'LIST_CLS') return renderCLSList();
       if (activeModal === 'LIST_HANDOVER') return renderHandoverList();
+      if (activeModal === 'LIST_DUTY_REPORT') return renderDutyReportList();
       
       if (activeModal === 'MENU') {
           const addOptions = [
@@ -1221,11 +1503,12 @@ function App() {
               { id: 'add_glucose', label: 'Báo đường huyết', icon: Icons.Glucose, color: 'bg-yellow-100', action: () => handleAddFromList('GLUCOSE') },
               { id: 'add_cls', label: 'Theo dõi CLS', icon: Icons.Icons_CLS, color: 'bg-orange-100', action: () => handleAddFromList('CLS') },
               { id: 'add_handover', label: 'Bàn giao trực', icon: Icons.Handover, color: 'bg-rose-100', action: () => handleAddFromList('HANDOVER') },
+              { id: 'add_duty', label: 'Báo cáo trực', icon: Icons.Report, color: 'bg-teal-100', action: () => setActiveModal('LIST_DUTY_REPORT') },
           ];
           return (
               <div className="py-2">
                   <p className="text-sm text-slate-500 mb-4 text-center">Chọn loại dữ liệu cần thêm</p>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {addOptions.map(opt => (
                         <button key={opt.id} onClick={opt.action} className="flex flex-col items-center p-3 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${opt.color} bg-opacity-20`}>
@@ -1245,6 +1528,138 @@ function App() {
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                   Quay lại
               </div>
+              {/* === DUTY REPORT FORM === */}
+              {activeModal === 'DUTY_REPORT_FORM' && (
+                  <div className="space-y-6">
+                      {/* Header */}
+                      <div className="space-y-3">
+                          <h4 className="text-sm font-bold text-slate-800 border-b pb-1">Thông tin chung</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">Ngày trực</label>
+                                  <input required type="date" className="w-full px-3 py-2 border rounded-lg bg-red-50" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">Bác sĩ trực</label>
+                                  <input type="text" className="w-full px-3 py-2 border rounded-lg" value={formData.doctor || ''} onChange={e => handleFormChange('doctor', e.target.value)} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-medium text-slate-500 mb-1">Điều dưỡng trực</label>
+                                  <input type="text" className="w-full px-3 py-2 border rounded-lg" value={formData.nurse || ''} onChange={e => handleFormChange('nurse', e.target.value)} />
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* I. Tình hình khoa */}
+                      <div>
+                          <h4 className="text-sm font-bold text-slate-800 border-b pb-1 mb-2">I. Tình hình khoa</h4>
+                          <div className="grid grid-cols-3 gap-3 text-center">
+                              <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Cũ</label>
+                                  <input type="number" className="w-full px-2 py-2 border rounded text-center" value={formData.stats?.old || ''} onChange={e => setFormData({...formData, stats: {...formData.stats, old: e.target.value}})} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Vào</label>
+                                  <input type="number" className="w-full px-2 py-2 border rounded text-center" value={formData.stats?.in || ''} onChange={e => setFormData({...formData, stats: {...formData.stats, in: e.target.value}})} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Ra</label>
+                                  <input type="number" className="w-full px-2 py-2 border rounded text-center" value={formData.stats?.out || ''} onChange={e => setFormData({...formData, stats: {...formData.stats, out: e.target.value}})} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Chuyển khoa</label>
+                                  <input type="number" className="w-full px-2 py-2 border rounded text-center" value={formData.stats?.transferIn || ''} onChange={e => setFormData({...formData, stats: {...formData.stats, transferIn: e.target.value}})} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Chuyển viện</label>
+                                  <input type="number" className="w-full px-2 py-2 border rounded text-center" value={formData.stats?.transferOut || ''} onChange={e => setFormData({...formData, stats: {...formData.stats, transferOut: e.target.value}})} />
+                              </div>
+                              <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Còn</label>
+                                  <input type="number" className="w-full px-2 py-2 border rounded text-center font-bold" value={formData.stats?.remaining || ''} onChange={e => setFormData({...formData, stats: {...formData.stats, remaining: e.target.value}})} />
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* II. Bệnh nhân chuyển */}
+                      <div>
+                          <div className="flex justify-between items-center border-b pb-1 mb-2">
+                              <h4 className="text-sm font-bold text-slate-800">II. Bệnh nhân chuyển</h4>
+                              <button type="button" onClick={() => setFormData({...formData, transfers: [...(formData.transfers || []), {id: Date.now(), stt: (formData.transfers?.length || 0) + 1, name: '', age: '', room: '', destination: ''}]})} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold">+ Thêm</button>
+                          </div>
+                          {(formData.transfers || []).map((item: any, idx: number) => (
+                              <div key={idx} className="bg-red-50/50 p-3 rounded mb-2 border border-slate-200">
+                                  <div className="flex justify-between mb-2">
+                                      <span className="text-xs font-bold text-slate-500">#{idx + 1}</span>
+                                      <button type="button" onClick={() => setFormData({...formData, transfers: formData.transfers.filter((_: any, i: number) => i !== idx)})} className="text-red-500">
+                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                  </div>
+                                  <div className="grid grid-cols-6 gap-2">
+                                      <input placeholder="Tên" className="col-span-3 px-2 py-1 border rounded text-sm" value={item.name} onChange={e => {const arr = [...formData.transfers]; arr[idx].name = e.target.value; setFormData({...formData, transfers: arr})}} />
+                                      <input placeholder="Tuổi" className="col-span-1 px-2 py-1 border rounded text-sm" value={item.age} onChange={e => {const arr = [...formData.transfers]; arr[idx].age = e.target.value; setFormData({...formData, transfers: arr})}} />
+                                      <input placeholder="Phòng" className="col-span-2 px-2 py-1 border rounded text-sm" value={item.room} onChange={e => {const arr = [...formData.transfers]; arr[idx].room = e.target.value; setFormData({...formData, transfers: arr})}} />
+                                      <textarea rows={1} placeholder="Nơi chuyển" className="col-span-6 px-2 py-1 border rounded text-sm resize-y" value={item.destination} onChange={e => {const arr = [...formData.transfers]; arr[idx].destination = e.target.value; setFormData({...formData, transfers: arr})}} />
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+
+                       {/* III. Bệnh nhân diễn biến */}
+                       <div>
+                          <div className="flex justify-between items-center border-b pb-1 mb-2">
+                              <h4 className="text-sm font-bold text-slate-800">III. Bệnh nhân diễn biến</h4>
+                              <button type="button" onClick={() => setFormData({...formData, progressions: [...(formData.progressions || []), {id: Date.now(), stt: (formData.progressions?.length || 0) + 1, name: '', age: '', room: '', progression: ''}]})} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold">+ Thêm</button>
+                          </div>
+                          {(formData.progressions || []).map((item: any, idx: number) => (
+                              <div key={idx} className="bg-red-50/50 p-3 rounded mb-2 border border-slate-200">
+                                  <div className="flex justify-between mb-2">
+                                      <span className="text-xs font-bold text-slate-500">#{idx + 1}</span>
+                                      <button type="button" onClick={() => setFormData({...formData, progressions: formData.progressions.filter((_: any, i: number) => i !== idx)})} className="text-red-500">
+                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                  </div>
+                                  <div className="grid grid-cols-6 gap-2">
+                                      <input placeholder="Tên" className="col-span-3 px-2 py-1 border rounded text-sm" value={item.name} onChange={e => {const arr = [...formData.progressions]; arr[idx].name = e.target.value; setFormData({...formData, progressions: arr})}} />
+                                      <input placeholder="Tuổi" className="col-span-1 px-2 py-1 border rounded text-sm" value={item.age} onChange={e => {const arr = [...formData.progressions]; arr[idx].age = e.target.value; setFormData({...formData, progressions: arr})}} />
+                                      <input placeholder="Phòng" className="col-span-2 px-2 py-1 border rounded text-sm" value={item.room} onChange={e => {const arr = [...formData.progressions]; arr[idx].room = e.target.value; setFormData({...formData, progressions: arr})}} />
+                                      <textarea rows={2} placeholder="Diễn biến" className="col-span-6 px-2 py-1 border rounded text-sm resize-y" value={item.progression} onChange={e => {const arr = [...formData.progressions]; arr[idx].progression = e.target.value; setFormData({...formData, progressions: arr})}} />
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+
+                      {/* IV. Bệnh nhân vào */}
+                      <div>
+                          <div className="flex justify-between items-center border-b pb-1 mb-2">
+                              <h4 className="text-sm font-bold text-slate-800">IV. Bệnh nhân vào</h4>
+                              <button type="button" onClick={() => setFormData({...formData, admissions: [...(formData.admissions || []), {id: Date.now(), stt: (formData.admissions?.length || 0) + 1, name: '', age: '', room: '', diagnosis: ''}]})} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold">+ Thêm</button>
+                          </div>
+                          {(formData.admissions || []).map((item: any, idx: number) => (
+                              <div key={idx} className="bg-red-50/50 p-3 rounded mb-2 border border-slate-200">
+                                  <div className="flex justify-between mb-2">
+                                      <span className="text-xs font-bold text-slate-500">#{idx + 1}</span>
+                                      <button type="button" onClick={() => setFormData({...formData, admissions: formData.admissions.filter((_: any, i: number) => i !== idx)})} className="text-red-500">
+                                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                      </button>
+                                  </div>
+                                  <div className="grid grid-cols-6 gap-2">
+                                      <input placeholder="Tên" className="col-span-3 px-2 py-1 border rounded text-sm" value={item.name} onChange={e => {const arr = [...formData.admissions]; arr[idx].name = e.target.value; setFormData({...formData, admissions: arr})}} />
+                                      <input placeholder="Tuổi" className="col-span-1 px-2 py-1 border rounded text-sm" value={item.age} onChange={e => {const arr = [...formData.admissions]; arr[idx].age = e.target.value; setFormData({...formData, admissions: arr})}} />
+                                      <input placeholder="Phòng" className="col-span-2 px-2 py-1 border rounded text-sm" value={item.room} onChange={e => {const arr = [...formData.admissions]; arr[idx].room = e.target.value; setFormData({...formData, admissions: arr})}} />
+                                      <textarea rows={2} placeholder="Chẩn đoán" className="col-span-6 px-2 py-1 border rounded text-sm resize-y" value={item.diagnosis} onChange={e => {const arr = [...formData.admissions]; arr[idx].diagnosis = e.target.value; setFormData({...formData, admissions: arr})}} />
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+
+                       {/* V. Khác */}
+                       <div>
+                          <h4 className="text-sm font-bold text-slate-800 border-b pb-1 mb-2">V. Khác</h4>
+                          <textarea className="w-full px-3 py-2 border rounded-lg h-24" placeholder="Ghi chú khác..." value={formData.notes || ''} onChange={e => handleFormChange('notes', e.target.value)}></textarea>
+                       </div>
+                  </div>
+              )}
               {activeModal === 'TASK' && (
                   <>
                     <div>
@@ -1263,19 +1678,19 @@ function App() {
               )}
               {activeModal === 'CLS' && (
                 <>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Tên bệnh nhân</label>
-                    <input required type="text" className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/20" placeholder="Họ tên BN..." value={formData.patientName || ''} onChange={e => handleFormChange('patientName', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Số điện thoại</label>
-                    <input type="tel" className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/20" placeholder="SĐT liên hệ..." value={formData.phone || ''} onChange={e => handleFormChange('phone', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Cận lâm sàng (CLS)</label>
-                    <input required type="text" className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/20" placeholder="Tên xét nghiệm/CĐHA..." value={formData.cls || ''} onChange={e => handleFormChange('cls', e.target.value)} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Tên bệnh nhân</label>
+                        <input required type="text" className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/20" placeholder="Họ tên BN..." value={formData.patientName || ''} onChange={e => handleFormChange('patientName', e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Số điện thoại</label>
+                        <input type="tel" className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/20" placeholder="SĐT liên hệ..." value={formData.phone || ''} onChange={e => handleFormChange('phone', e.target.value)} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Cận lâm sàng (CLS)</label>
+                        <input required type="text" className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/20" placeholder="Tên xét nghiệm/CĐHA..." value={formData.cls || ''} onChange={e => handleFormChange('cls', e.target.value)} />
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Ngày hẹn trả</label>
                       <input required type="date" className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-primary/20" value={formData.returnDate || ''} onChange={e => handleFormChange('returnDate', e.target.value)} />
@@ -1316,7 +1731,7 @@ function App() {
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Ngày bàn giao</label>
-                        <input required type="date" className="w-full px-3 py-2 border rounded-lg outline-none bg-slate-50" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
+                        <input required type="date" className="w-full px-3 py-2 border rounded-lg outline-none bg-red-50" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
                     </div>
                   </>
               )}
@@ -1379,7 +1794,7 @@ function App() {
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Ngày mời hội chẩn</label>
-                        <input type="date" required className="w-full px-3 py-2 border rounded-lg outline-none bg-slate-50" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
+                        <input type="date" required className="w-full px-3 py-2 border rounded-lg outline-none bg-red-50" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
                     </div>
                   </>
               )}
@@ -1404,7 +1819,7 @@ function App() {
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Ngày</label>
-                            <input required type="date" className="w-full px-3 py-2 border rounded-lg outline-none bg-slate-50" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
+                            <input required type="date" className="w-full px-3 py-2 border rounded-lg outline-none bg-red-50" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Giờ</label>
@@ -1421,7 +1836,7 @@ function App() {
                             <input required type="text" className="w-full px-3 py-2 border rounded-lg outline-none" placeholder="Tên BN" value={formData.patientName || ''} onChange={e => handleFormChange('patientName', e.target.value)} />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3 pt-2">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
                         <div>
                             <label className="block text-sm font-medium text-red-600 mb-1">HA</label>
                             <input required type="text" className="w-full px-3 py-2 border border-red-200 rounded-lg outline-none" placeholder="120/80" value={formData.bp || ''} onChange={e => handleFormChange('bp', e.target.value)} />
@@ -1450,7 +1865,7 @@ function App() {
                     <div className="grid grid-cols-2 gap-3">
                         <div className="col-span-2">
                             <label className="block text-sm font-medium text-slate-700 mb-1">Ngày tháng năm</label>
-                            <input required type="date" className="w-full px-4 py-3 border rounded-xl outline-none bg-slate-50 focus:ring-2 focus:ring-primary/20" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
+                            <input required type="date" className="w-full px-4 py-3 border rounded-xl outline-none bg-red-50 focus:ring-2 focus:ring-primary/20" value={formData.date || ''} onChange={e => handleFormChange('date', e.target.value)} />
                         </div>
                     </div>
                      <div className="grid grid-cols-3 gap-3">
@@ -1464,7 +1879,7 @@ function App() {
                         </div>
                     </div>
                     
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div className="bg-red-50 p-4 rounded-xl border border-red-200">
                         <label className="block text-sm font-bold text-slate-700 mb-3">Chọn các mốc giờ test</label>
                         <div className="flex flex-wrap gap-2">
                             {[...GLUCOSE_DEFAULT_SLOTS, "Khác"].map(time => {
@@ -1483,7 +1898,7 @@ function App() {
                                             handleFormChange('selectedSlots', newSlots);
                                         }}
                                         className={`px-4 py-2 rounded-full text-sm font-bold transition-all border ${
-                                            isSelected ? 'bg-primary border-primary text-white shadow-md' : 'bg-white border-slate-200 text-slate-600'
+                                            isSelected ? 'bg-primary border-primary text-white shadow-md' : 'bg-white border-red-200 text-slate-600'
                                         }`}
                                     >
                                         {time}
@@ -1493,73 +1908,75 @@ function App() {
                         </div>
                     </div>
 
-                    {Object.keys(formData.selectedSlots || {}).map((timeKey) => {
-                        const slot = formData.selectedSlots[timeKey];
-                        return (
-                            <div key={timeKey} className="border-2 border-primary/10 rounded-xl p-4 space-y-3 bg-white animate-slide-up">
-                                <div className="flex justify-between items-center border-b border-slate-100 pb-2 mb-2">
-                                    <h4 className="font-bold text-primary flex items-center uppercase">
-                                        <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                        Mốc giờ: {timeKey}
-                                    </h4>
-                                    {timeKey === "Khác" && (
-                                        <input 
-                                            type="time" 
-                                            className="px-2 py-1 border rounded text-xs font-bold" 
-                                            value={slot.time} 
-                                            onChange={e => {
-                                                const newSlots = { ...formData.selectedSlots };
-                                                newSlots[timeKey].time = e.target.value;
-                                                handleFormChange('selectedSlots', newSlots);
-                                            }}
-                                        />
-                                    )}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {Object.keys(formData.selectedSlots || {}).map((timeKey) => {
+                            const slot = formData.selectedSlots[timeKey];
+                            return (
+                                <div key={timeKey} className="border-2 border-primary/10 rounded-xl p-4 space-y-3 bg-white animate-slide-up">
+                                    <div className="flex justify-between items-center border-b border-red-100 pb-2 mb-2">
+                                        <h4 className="font-bold text-primary flex items-center uppercase">
+                                            <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            Mốc giờ: {timeKey}
+                                        </h4>
+                                        {timeKey === "Khác" && (
+                                            <input 
+                                                type="time" 
+                                                className="px-2 py-1 border rounded text-xs font-bold" 
+                                                value={slot.time} 
+                                                onChange={e => {
+                                                    const newSlots = { ...formData.selectedSlots };
+                                                    newSlots[timeKey].time = e.target.value;
+                                                    handleFormChange('selectedSlots', newSlots);
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                         <div className="col-span-2">
+                                            <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">Kết quả Test (mmol/L)</label>
+                                            <input 
+                                                type="text" 
+                                                placeholder="VD: 7.5"
+                                                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-1 focus:ring-blue-500 font-bold text-blue-700" 
+                                                value={slot.testResult} 
+                                                onChange={e => {
+                                                    const newSlots = { ...formData.selectedSlots };
+                                                    newSlots[timeKey].testResult = e.target.value;
+                                                    handleFormChange('selectedSlots', newSlots);
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Loại Insulin</label>
+                                            <input 
+                                                type="text" 
+                                                className="w-full px-3 py-2 border rounded-lg outline-none" 
+                                                value={slot.insulinType} 
+                                                onChange={e => {
+                                                    const newSlots = { ...formData.selectedSlots };
+                                                    newSlots[timeKey].insulinType = e.target.value;
+                                                    handleFormChange('selectedSlots', newSlots);
+                                                }}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-red-600 uppercase mb-1">Liều lượng</label>
+                                            <input 
+                                                type="text" 
+                                                className="w-full px-3 py-2 border rounded-lg outline-none font-bold text-red-600" 
+                                                value={slot.insulinDose} 
+                                                onChange={e => {
+                                                    const newSlots = { ...formData.selectedSlots };
+                                                    newSlots[timeKey].insulinDose = e.target.value;
+                                                    handleFormChange('selectedSlots', newSlots);
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                     <div className="col-span-2">
-                                        <label className="block text-[10px] font-bold text-blue-600 uppercase mb-1">Kết quả Test (mmol/L)</label>
-                                        <input 
-                                            type="text" 
-                                            placeholder="VD: 7.5"
-                                            className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-1 focus:ring-blue-500 font-bold text-blue-700" 
-                                            value={slot.testResult} 
-                                            onChange={e => {
-                                                const newSlots = { ...formData.selectedSlots };
-                                                newSlots[timeKey].testResult = e.target.value;
-                                                handleFormChange('selectedSlots', newSlots);
-                                            }}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Loại Insulin</label>
-                                        <input 
-                                            type="text" 
-                                            className="w-full px-3 py-2 border rounded-lg outline-none" 
-                                            value={slot.insulinType} 
-                                            onChange={e => {
-                                                const newSlots = { ...formData.selectedSlots };
-                                                newSlots[timeKey].insulinType = e.target.value;
-                                                handleFormChange('selectedSlots', newSlots);
-                                            }}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-red-600 uppercase mb-1">Liều lượng</label>
-                                        <input 
-                                            type="text" 
-                                            className="w-full px-3 py-2 border rounded-lg outline-none font-bold text-red-600" 
-                                            value={slot.insulinDose} 
-                                            onChange={e => {
-                                                const newSlots = { ...formData.selectedSlots };
-                                                newSlots[timeKey].insulinDose = e.target.value;
-                                                handleFormChange('selectedSlots', newSlots);
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })}
+                    </div>
 
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Ghi chú thêm</label>
@@ -1568,8 +1985,8 @@ function App() {
                   </div>
               )}
               <div className="flex justify-end space-x-3 pt-6 border-t border-slate-100">
-                <button type="button" onClick={handleModalClose} className="px-6 py-3 text-sm font-bold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors">Hủy</button>
-                <button type="submit" disabled={submitting} className="px-8 py-3 text-sm font-bold text-white bg-primary rounded-xl hover:bg-sky-600 shadow-lg disabled:opacity-50 transition-all active:scale-95">
+                <button type="button" onClick={handleModalClose} className="px-6 py-3 text-sm font-bold text-slate-600 bg-red-100 rounded-xl hover:bg-red-200 transition-colors">Hủy</button>
+                <button type="submit" disabled={submitting} className="px-8 py-3 text-sm font-bold text-white bg-primary rounded-xl hover:bg-red-700 shadow-lg disabled:opacity-50 transition-all active:scale-95">
                     {submitting ? 'Đang lưu...' : 'Lưu dữ liệu'}
                 </button>
               </div>
@@ -1589,6 +2006,7 @@ function App() {
           case 'GLUCOSE': return formData.id ? 'Cập nhật đường huyết' : 'Báo đường huyết';
           case 'CLS': return formData.id ? 'Cập nhật theo dõi CLS' : 'Thêm theo dõi CLS';
           case 'HANDOVER': return formData.id ? 'Cập nhật bàn giao' : 'Thêm bàn giao trực';
+          case 'DUTY_REPORT_FORM': return formData.id ? 'Cập nhật báo cáo trực' : 'Thêm báo cáo trực';
           case 'LIST_HOLTER_ECG': return 'Danh sách Holter ECG';
           case 'LIST_HOLTER_BP': return 'Danh sách Holter Huyết áp';
           case 'LIST_CONSULTATION': return 'Quản lý Hội chẩn';
@@ -1598,6 +2016,7 @@ function App() {
           case 'LIST_GLUCOSE': return 'Danh sách Đường huyết';
           case 'LIST_CLS': return 'Theo dõi CLS trả sau';
           case 'LIST_HANDOVER': return 'Bàn giao BN trực';
+          case 'LIST_DUTY_REPORT': return 'Danh sách báo cáo trực';
           default: return '';
       }
   };
@@ -1611,13 +2030,14 @@ function App() {
     { id: '6', label: 'Báo đường huyết', icon: Icons.Glucose, color: 'bg-yellow-100', action: () => setActiveModal('LIST_GLUCOSE') },
     { id: '7', label: 'Theo dõi CLS', icon: Icons.Icons_CLS, color: 'bg-orange-100', action: () => setActiveModal('LIST_CLS') },
     { id: '8', label: 'Bàn giao trực', icon: Icons.Handover, color: 'bg-rose-100', action: () => setActiveModal('LIST_HANDOVER') },
+    { id: '9', label: 'Báo cáo trực', icon: Icons.Report, color: 'bg-teal-100', action: () => setActiveModal('LIST_DUTY_REPORT') },
   ];
 
   // Nếu người dùng chưa đăng nhập, trả về Login (được lazy load)
   if (!currentUser) {
       return (
         <Suspense fallback={
-          <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="min-h-screen flex items-center justify-center bg-red-50">
             <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
           </div>
         }>
@@ -1627,49 +2047,68 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-safe">
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 py-3 pt-safe flex justify-between items-center shadow-sm">
-        <div className="mt-safe">
-          <h1 className="text-xl font-bold text-slate-800">Khoa Nội</h1>
-          <div className="flex items-center space-x-2">
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{currentUser.displayName}</p>
-              {isOnline ? (
-                   <span className="flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">
-                       <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></span>
-                       Online
-                   </span>
-              ) : (
-                  <span className="flex items-center text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-bold">
-                       <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1"></span>
-                       Offline
-                   </span>
-              )}
-          </div>
-        </div>
-        <div className="flex space-x-2 mt-safe">
-            <button onClick={handleRefresh} disabled={loading} className="flex items-center px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-medium transition-colors" title="Làm mới">
-              <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            </button>
-            <button onClick={handleLogout} className="p-2 text-red-500 bg-red-50 rounded-lg hover:bg-red-100 transition-colors" title="Đăng xuất">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    <div className="min-h-screen bg-red-50 pb-safe">
+      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-red-100 px-4 py-3 pt-safe shadow-sm">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+            <div className="mt-safe">
+            <h1 className="text-xl font-bold text-slate-800">Khoa Nội</h1>
+            <div className="flex items-center space-x-2">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{currentUser.displayName}</p>
+                {isOnline ? (
+                    <span className="flex items-center text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1"></span>
+                        Online
+                    </span>
+                ) : (
+                    <span className="flex items-center text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full font-bold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400 mr-1"></span>
+                        Offline
+                    </span>
+                )}
+            </div>
+            </div>
+            <div className="flex space-x-2 mt-safe">
+                <button onClick={handleRefresh} disabled={loading} className="flex items-center px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-600 rounded-lg text-xs font-medium transition-colors" title="Làm mới">
+                <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-            </button>
+                </button>
+                <button onClick={handleLogout} className="p-2 text-red-500 bg-red-50 rounded-lg hover:bg-red-100 transition-colors" title="Đăng xuất">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                </button>
+            </div>
         </div>
       </header>
-      <main className="p-4 max-w-2xl mx-auto">
+      <main className="p-4 max-w-7xl mx-auto">
         {loading && !data ? (
             <div className="flex justify-center items-center h-64">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
         ) : data ? (
             <>
-                <HolterTracking trackerData={data.tracker} />
-                <h3 className="font-bold text-slate-800 text-lg mb-3 px-1">Menu chức năng</h3>
-                <MenuGrid items={menuItems} />
-                <WeeklyTasks tasks={data.tasks} onToggle={handleTaskToggle} onEdit={handleEditTask} onDelete={handleDeleteTask} />
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Left Column (Content) */}
+                    <div className="lg:col-span-8 space-y-6">
+                        <HolterTracking trackerData={data.tracker} />
+                        <div>
+                            <h3 className="font-bold text-slate-800 text-lg mb-3 px-1">Menu chức năng</h3>
+                            <MenuGrid items={menuItems} />
+                        </div>
+                         {/* Mobile-only view for tasks if needed, but we put it in right col for desktop */}
+                         <div className="block lg:hidden">
+                            <WeeklyTasks tasks={data.tasks} onToggle={handleTaskToggle} onEdit={handleEditTask} onDelete={handleDeleteTask} />
+                         </div>
+                    </div>
+
+                    {/* Right Column (Tasks - Sticky on Desktop) */}
+                    <div className="hidden lg:block lg:col-span-4 lg:sticky lg:top-24">
+                         <div className="bg-red-50/50 rounded-2xl p-4 border border-red-100">
+                             <WeeklyTasks tasks={data.tasks} onToggle={handleTaskToggle} onEdit={handleEditTask} onDelete={handleDeleteTask} />
+                         </div>
+                    </div>
+                </div>
             </>
         ) : (
             <div className="text-center py-10 text-slate-500">Không có dữ liệu.</div>

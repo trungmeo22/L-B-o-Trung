@@ -1,5 +1,5 @@
 
-import { SheetData, HolterDevice, Task, Consultation, Discharge, VitalsRecord, GlucoseRecord, CLSRecord, HandoverRecord, User, TrackerRecord, HolterType, HolterStatus } from '../types';
+import { SheetData, HolterDevice, Task, Consultation, Discharge, VitalsRecord, GlucoseRecord, CLSRecord, HandoverRecord, DutyReport, User, TrackerRecord, HolterType, HolterStatus } from '../types';
 import { db, auth } from './firebase';
 import { 
   collection, 
@@ -12,7 +12,8 @@ import {
   getDoc,
   query,
   orderBy,
-  where
+  where,
+  limit
 } from 'firebase/firestore';
 import { 
   signInWithEmailAndPassword, 
@@ -36,6 +37,7 @@ const INITIAL_DATA: SheetData = {
   glucoseRecords: [],
   clsRecords: [],
   handovers: [],
+  dutyReports: [],
   users: [],
   tracker: [
       { id: '1', key: 'maytrong', bp: '1', ecg: '2' },
@@ -74,9 +76,19 @@ const getSevenDaysAgoISO = () => {
     return d.toISOString().split('T')[0];
 };
 
+// Calculate date 30 days ago in YYYY-MM-DD format for filtering
+const getThirtyDaysAgoISO = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+};
+
 // Helper to wait for auth to be ready
 const waitForAuthReady = () => {
   return new Promise<FirebaseUser | null>((resolve) => {
+     // If auth is already initialized (currentUser is not null or explicitly null after init), resolve immediately
+     // Note: firebase/auth doesn't expose a simple "isInitialized" property easily, 
+     // but onAuthStateChanged triggers immediately with current state.
      const unsubscribe = onAuthStateChanged(auth, (user) => {
         unsubscribe();
         resolve(user);
@@ -104,6 +116,7 @@ export const fetchData = async (): Promise<FetchResult> => {
 
       const cutoffDate = getThreeDaysAgoISO();
       const sevenDaysAgoDate = getSevenDaysAgoISO();
+      const thirtyDaysAgoDate = getThirtyDaysAgoISO();
 
       // OPTIMIZED QUERY LOGIC - SAFE & CHEAP
       // 1. Get ALL Active/Pending items (Limited by physical devices, usually < 10 docs)
@@ -111,7 +124,6 @@ export const fetchData = async (): Promise<FetchResult> => {
       const holtersActiveQuery = query(collection(db, 'holters'), where('status', 'in', [HolterStatus.ACTIVE, HolterStatus.PENDING]));
       
       // 2. Get ALL Holters created/installed recently (Last 7 days)
-      // UPDATED: Using sevenDaysAgoDate instead of cutoffDate
       const holtersRecentQuery = query(collection(db, 'holters'), where('installDate', '>=', sevenDaysAgoDate));
 
       const tasksQuery = collection(db, 'tasks'); // Fetch all tasks
@@ -127,6 +139,9 @@ export const fetchData = async (): Promise<FetchResult> => {
       
       const handoversQuery = query(collection(db, 'handovers'), where('date', '>=', cutoffDate));
       
+      // Duty Reports: Fetch last 30 days to support searching
+      const dutyReportsQuery = query(collection(db, 'dutyReports'), where('date', '>=', thirtyDaysAgoDate));
+      
       const [
         holtersActiveSnap,
         holtersRecentSnap,
@@ -136,7 +151,8 @@ export const fetchData = async (): Promise<FetchResult> => {
         vitalsSnap,
         glucoseSnap,
         clsSnap,
-        handoversSnap
+        handoversSnap,
+        dutyReportsSnap
       ] = await Promise.all([
         getDocs(holtersActiveQuery),
         getDocs(holtersRecentQuery),
@@ -146,7 +162,8 @@ export const fetchData = async (): Promise<FetchResult> => {
         getDocs(vitalsQuery),
         getDocs(glucoseQuery),
         getDocs(clsQuery),
-        getDocs(handoversQuery)
+        getDocs(handoversQuery),
+        getDocs(dutyReportsQuery)
       ]);
 
       const mapDocs = <T>(snap: any): T[] => snap.docs.map((d: any) => ({ ...d.data(), id: d.id }));
@@ -287,6 +304,13 @@ export const fetchData = async (): Promise<FetchResult> => {
           glucoseRecords: mapDocs(glucoseSnap),
           clsRecords: mapDocs(clsSnap),
           handovers: mapDocs(handoversSnap),
+          dutyReports: mapDocs<DutyReport>(dutyReportsSnap).map(r => ({
+              ...r,
+              transfers: Array.isArray(r.transfers) ? r.transfers : [],
+              progressions: Array.isArray(r.progressions) ? r.progressions : [],
+              admissions: Array.isArray(r.admissions) ? r.admissions : [],
+              stats: r.stats || { old: '', in: '', out: '', transferIn: '', transferOut: '', remaining: '' }
+          })),
           users: [], // Users handled by Auth
           tracker: computedTracker
       };
@@ -323,17 +347,21 @@ export const loginFirebase = async (username: string): Promise<User> => {
 };
 
 export const loginWithPassword = async (username: string, password: string): Promise<User> => {
-    const email = `${username}@khoanoi.internal`;
+    // Sanitize input
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+    
+    const email = `${cleanUsername}@khoanoi.internal`;
     try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, cleanPassword);
         const fbUser = userCredential.user;
         
-        let displayName = fbUser.displayName || username;
+        let displayName = fbUser.displayName || cleanUsername;
 
         // Fetch custom name from 'nameid' collection
         // Assuming the Document ID is the username (e.g. 'abc')
         try {
-            const docRef = doc(db, 'nameid', username);
+            const docRef = doc(db, 'nameid', cleanUsername);
             const docSnap = await getDoc(docRef);
             
             if (docSnap.exists()) {
@@ -349,7 +377,7 @@ export const loginWithPassword = async (username: string, password: string): Pro
         
         const user: User = {
             id: fbUser.uid,
-            username: username,
+            username: cleanUsername,
             displayName: displayName, 
             role: 'staff' // Default role
         };
@@ -364,6 +392,20 @@ export const loginWithPassword = async (username: string, password: string): Pro
 // Helper function to sync user profile if it's stale (e.g. showing "abc")
 export const syncUserProfile = async (currentUser: User): Promise<User> => {
     if (!currentUser || !currentUser.username) return currentUser;
+
+    // IMPORTANT: Wait for Firebase Auth to initialize.
+    // Reading Firestore usually requires an authenticated user.
+    // If we query too early (before auth restores session), we get permission denied.
+    if (!auth.currentUser) {
+        await waitForAuthReady();
+    }
+    
+    // Double check auth after waiting
+    if (!auth.currentUser) {
+        // Still no auth user? Might be offline or session expired. 
+        // Cannot sync, return current local data.
+        return currentUser;
+    }
 
     try {
         const docRef = doc(db, 'nameid', currentUser.username);
@@ -485,3 +527,11 @@ export const addHandoverToSheet = async (item: HandoverRecord): Promise<SheetDat
     return res.data;
 };
 export const deleteHandover = async (id: string): Promise<SheetData> => deleteData('handovers', id);
+
+export const addDutyReportToSheet = async (item: DutyReport): Promise<SheetData> => {
+    const docRef = doc(db, 'dutyReports', item.id);
+    await setDoc(docRef, sanitize(item));
+    const res = await fetchData();
+    return res.data;
+};
+export const deleteDutyReport = async (id: string): Promise<SheetData> => deleteData('dutyReports', id);

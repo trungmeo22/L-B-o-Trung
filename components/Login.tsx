@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User } from '../types';
 import * as DataService from '../services/dataService';
@@ -36,8 +37,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
     };
 
     return (
-        <div className="fixed inset-0 bg-slate-50 flex items-center justify-center p-6 z-[100]">
-            <div className="w-full max-w-sm bg-white rounded-3xl shadow-xl border border-slate-100 p-8 animate-slide-up relative">
+        <div className="fixed inset-0 bg-red-50 flex items-center justify-center p-6 z-[100]">
+            <div className="w-full max-w-sm bg-white rounded-3xl shadow-xl border border-red-100 p-8 animate-slide-up relative">
                 
                 <div className="flex flex-col items-center mb-8">
                     <div className="w-20 h-20 bg-primary/10 rounded-2xl flex items-center justify-center mb-4 text-primary">
@@ -45,7 +46,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
                     </div>
-                    <h1 className="text-2xl font-bold text-slate-800">Khoa Nội</h1>
+                    <h1 className="text-2xl font-bold text-red-900">Khoa Nội</h1>
                     <p className="text-slate-500 text-sm mt-1">Hệ thống quản lý công việc</p>
                 </div>
 
@@ -59,7 +60,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                             <input 
                                 required 
                                 type="text" 
-                                className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border-none rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                                className="w-full pl-12 pr-4 py-3.5 bg-red-50 border-none rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                                 placeholder="Nhập username (vd: abc)"
                                 value={username}
                                 onChange={e => setUsername(e.target.value)}
@@ -76,7 +77,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                             <input 
                                 required 
                                 type="password" 
-                                className="w-full pl-12 pr-4 py-3.5 bg-slate-50 border-none rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                                className="w-full pl-12 pr-4 py-3.5 bg-red-50 border-none rounded-2xl text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                                 placeholder="Nhập mật khẩu"
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
@@ -94,7 +95,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     <button 
                         type="submit" 
                         disabled={loading}
-                        className="w-full py-4 bg-primary text-white font-bold rounded-2xl shadow-lg shadow-primary/20 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center space-x-2"
+                        className="w-full py-4 bg-primary text-white font-bold rounded-2xl shadow-lg shadow-red-500/20 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center space-x-2"
                     >
                         {loading ? (
                             <>
@@ -107,7 +108,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
                     </button>
                 </form>
 
-                <div className="mt-8 pt-6 border-t border-slate-50 text-center">
+                <div className="mt-8 pt-6 border-t border-red-50 text-center">
                     <p className="text-[10px] text-slate-400 uppercase tracking-widest font-bold">Firebase Edition</p>
                 </div>
             </div>
