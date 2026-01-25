@@ -28,7 +28,7 @@ const Icons = {
     Report: <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
 };
 
-type ModalType = 'MENU' | 'TASK' | 'CONSULTATION' | 'DISCHARGE' | 'VITALS' | 'HOLTER_ECG' | 'HOLTER_BP' | 'GLUCOSE' | 'CLS' | 'HANDOVER' | 'LIST_HOLTER_ECG' | 'LIST_HOLTER_BP' | 'LIST_CONSULTATION' | 'DETAIL_CONSULTATION' | 'LIST_DISCHARGE' | 'LIST_VITALS' | 'LIST_GLUCOSE' | 'LIST_CLS' | 'LIST_HANDOVER' | 'LIST_DUTY_REPORT' | 'DUTY_REPORT_FORM' | null;
+type ModalType = 'MENU' | 'TASK' | 'CONSULTATION' | 'DISCHARGE' | 'VITALS' | 'HOLTER_ECG' | 'HOLTER_BP' | 'GLUCOSE' | 'CLS' | 'HANDOVER' | 'LIST_HOLTER_ECG' | 'LIST_HOLTER_BP' | 'LIST_CONSULTATION' | 'DETAIL_CONSULTATION' | 'LIST_DISCHARGE' | 'LIST_VITALS' | 'LIST_GLUCOSE' | 'LIST_CLS' | 'LIST_HANDOVER' | 'LIST_DUTY_REPORT' | 'DUTY_REPORT_FORM' | 'DETAIL_DUTY_REPORT' | null;
 
 const GLUCOSE_DEFAULT_SLOTS = ["06:00", "11:00", "17:00", "21:00"];
 
@@ -38,6 +38,7 @@ function App() {
   const [isOnline, setIsOnline] = useState(false);
   const [activeModal, setActiveModal] = useState<ModalType>(null);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
+  const [selectedDutyReport, setSelectedDutyReport] = useState<DutyReport | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(DataService.getCurrentUser());
   
   // Filtering state
@@ -124,6 +125,7 @@ function App() {
       setFormData({});
       setSubmitting(false);
       setSelectedConsultation(null);
+      setSelectedDutyReport(null);
       setFilterText('');
       setDoctorFilter('');
       setReportDateFilter('');
@@ -181,10 +183,11 @@ function App() {
           setSubmitting(false);
           return;
       }
-      if (activeModal === 'DUTY_REPORT_FORM') {
+      if (activeModal === 'DUTY_REPORT_FORM' || activeModal === 'DETAIL_DUTY_REPORT') {
           setActiveModal('LIST_DUTY_REPORT');
           setFormData({});
           setSubmitting(false);
+          setSelectedDutyReport(null);
           return;
       }
       setActiveModal('MENU');
@@ -361,6 +364,11 @@ function App() {
   const handleEditDutyReport = (item: DutyReport) => {
     setFormData({ ...item });
     setActiveModal('DUTY_REPORT_FORM');
+  };
+
+  const handleViewDutyReport = (item: DutyReport) => {
+    setSelectedDutyReport(item);
+    setActiveModal('DETAIL_DUTY_REPORT');
   };
 
   const handleToggleCLSStatus = async (item: CLSRecord, e: React.MouseEvent) => {
@@ -1045,7 +1053,7 @@ function App() {
                     return (
                         <div 
                           key={item.id} 
-                          onClick={() => handleEditDutyReport(item)} 
+                          onClick={() => handleViewDutyReport(item)}
                           className="p-4 rounded-xl border shadow-sm bg-white border-l-4 border-l-teal-500 mb-3 animate-fade-in cursor-pointer hover:bg-slate-50 active:bg-slate-100 transition-colors"
                         >
                              <div className="flex justify-between items-center">
@@ -1069,6 +1077,143 @@ function App() {
                     );
                 })
             )}
+        </div>
+    );
+  };
+
+  const renderDutyReportDetail = () => {
+    if (!selectedDutyReport) return null;
+    const report = selectedDutyReport;
+    const dateFormatted = report.date.split('-').reverse().join('/');
+    
+    // Safety checks for arrays
+    const transfers = Array.isArray(report.transfers) ? report.transfers : [];
+    const progressions = Array.isArray(report.progressions) ? report.progressions : [];
+    const admissions = Array.isArray(report.admissions) ? report.admissions : [];
+
+    return (
+        <div className="space-y-4 pt-2">
+            <div className="flex items-center text-sm text-slate-500 mb-4 cursor-pointer" onClick={() => setActiveModal('LIST_DUTY_REPORT')}>
+                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                Quay lại danh sách
+            </div>
+            
+            <div className="bg-white rounded-xl border border-teal-100 p-4 shadow-sm space-y-5">
+                 {/* Header Info */}
+                <div className="text-center border-b border-slate-100 pb-3">
+                    <h3 className="text-lg font-bold text-slate-800 uppercase">Báo cáo trực ngày {dateFormatted}</h3>
+                    <div className="flex justify-center space-x-6 mt-2 text-sm text-slate-600">
+                         <p>BS: <span className="font-bold">{report.doctor}</span></p>
+                         <p>ĐD: <span className="font-bold">{report.nurse}</span></p>
+                    </div>
+                </div>
+
+                {/* I. Stats */}
+                <div>
+                     <h4 className="text-sm font-bold text-teal-600 uppercase mb-2 border-l-4 border-teal-500 pl-2">I. Tình hình khoa</h4>
+                     <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                        <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                            <span className="block text-slate-500 text-xs">Cũ</span>
+                            <span className="font-bold text-slate-800">{report.stats?.old || '-'}</span>
+                        </div>
+                         <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                            <span className="block text-slate-500 text-xs">Vào</span>
+                            <span className="font-bold text-slate-800">{report.stats?.in || '-'}</span>
+                        </div>
+                         <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                            <span className="block text-slate-500 text-xs">Ra</span>
+                            <span className="font-bold text-slate-800">{report.stats?.out || '-'}</span>
+                        </div>
+                         <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                            <span className="block text-slate-500 text-xs">Chuyển khoa</span>
+                            <span className="font-bold text-slate-800">{report.stats?.transferIn || '-'}</span>
+                        </div>
+                         <div className="bg-slate-50 p-2 rounded border border-slate-100">
+                            <span className="block text-slate-500 text-xs">Chuyển viện</span>
+                            <span className="font-bold text-slate-800">{report.stats?.transferOut || '-'}</span>
+                        </div>
+                         <div className="bg-slate-100 p-2 rounded border border-slate-200">
+                            <span className="block text-slate-600 text-xs font-bold">Còn</span>
+                            <span className="font-bold text-slate-800">{report.stats?.remaining || '-'}</span>
+                        </div>
+                     </div>
+                </div>
+
+                {/* II. Transfers */}
+                <div>
+                    <h4 className="text-sm font-bold text-teal-600 uppercase mb-2 border-l-4 border-teal-500 pl-2">II. Bệnh nhân chuyển ({transfers.length})</h4>
+                    {transfers.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">Không có bệnh nhân chuyển</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {transfers.map((t, idx) => (
+                                <div key={idx} className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm">
+                                    <div className="flex justify-between font-bold text-slate-700">
+                                        <span>{t.stt}. {t.name} ({t.age}t)</span>
+                                        <span className="text-teal-600">{t.room}</span>
+                                    </div>
+                                    <p className="text-slate-600 mt-1"><span className="text-slate-400">Chuyển:</span> {t.destination}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* III. Progressions */}
+                <div>
+                    <h4 className="text-sm font-bold text-teal-600 uppercase mb-2 border-l-4 border-teal-500 pl-2">III. Bệnh nhân diễn biến ({progressions.length})</h4>
+                    {progressions.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">Không có bệnh nhân diễn biến</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {progressions.map((p, idx) => (
+                                <div key={idx} className="bg-red-50/30 p-3 rounded-lg border border-red-50 text-sm">
+                                    <div className="flex justify-between font-bold text-slate-700">
+                                        <span>{p.stt}. {p.name} ({p.age}t)</span>
+                                        <span className="text-teal-600">{p.room}</span>
+                                    </div>
+                                    <p className="text-slate-600 mt-1 whitespace-pre-wrap">{p.progression}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* IV. Admissions */}
+                <div>
+                    <h4 className="text-sm font-bold text-teal-600 uppercase mb-2 border-l-4 border-teal-500 pl-2">IV. Bệnh nhân vào ({admissions.length})</h4>
+                    {admissions.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">Không có bệnh nhân vào viện</p>
+                    ) : (
+                        <div className="space-y-2">
+                            {admissions.map((a, idx) => (
+                                <div key={idx} className="bg-blue-50/30 p-3 rounded-lg border border-blue-50 text-sm">
+                                    <div className="flex justify-between font-bold text-slate-700">
+                                        <span>{a.stt}. {a.name} ({a.age}t)</span>
+                                        <span className="text-teal-600">{a.room}</span>
+                                    </div>
+                                    <p className="text-slate-600 mt-1"><span className="text-slate-400">Chẩn đoán:</span> {a.diagnosis}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                 {/* V. Notes */}
+                <div>
+                    <h4 className="text-sm font-bold text-teal-600 uppercase mb-2 border-l-4 border-teal-500 pl-2">V. Khác</h4>
+                     <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm whitespace-pre-wrap text-slate-700 min-h-[60px]">
+                        {report.notes || <span className="text-slate-400 italic">Không có ghi chú thêm</span>}
+                     </div>
+                </div>
+            </div>
+            
+            <div className="flex justify-center pt-2">
+                <button onClick={(e) => { e.stopPropagation(); generateDutyReportPDF(report); }} className="flex items-center px-4 py-2 bg-teal-600 text-white rounded-lg shadow-lg hover:bg-teal-700 active:scale-95 transition-all text-sm font-bold">
+                    <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                    Tải PDF Báo Cáo
+                </button>
+            </div>
         </div>
     );
   };
@@ -1491,6 +1636,7 @@ function App() {
       if (activeModal === 'LIST_CLS') return renderCLSList();
       if (activeModal === 'LIST_HANDOVER') return renderHandoverList();
       if (activeModal === 'LIST_DUTY_REPORT') return renderDutyReportList();
+      if (activeModal === 'DETAIL_DUTY_REPORT') return renderDutyReportDetail();
       
       if (activeModal === 'MENU') {
           const addOptions = [
@@ -2017,6 +2163,7 @@ function App() {
           case 'LIST_CLS': return 'Theo dõi CLS trả sau';
           case 'LIST_HANDOVER': return 'Bàn giao BN trực';
           case 'LIST_DUTY_REPORT': return 'Danh sách báo cáo trực';
+          case 'DETAIL_DUTY_REPORT': return 'Chi tiết báo cáo trực';
           default: return '';
       }
   };
