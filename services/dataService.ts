@@ -269,22 +269,54 @@ export const fetchData = async (): Promise<FetchResult> => {
         return '--:--';
       };
 
+      // Helper function to calculate if a machine is effectively occupied
+      // A machine is occupied if:
+      // 1. Status is ACTIVE (Wearing)
+      // 2. Status is PENDING (Waiting) AND it blocks the "Immediate Future" (Next 24h).
+      //    We use strict Overlap logic: Does the task [Start, Start+24] overlap with [Now, Now+24]?
+      const isOccupying = (h: HolterDevice) => {
+        if (h.status === HolterStatus.ACTIVE) return true;
+        
+        if (h.status === HolterStatus.PENDING) {
+            const installTime = safeTime(h.installDate);
+            // If no date (0), assume immediate = Occupied
+            if (installTime === 0) return true;
+
+            const pendingStart = installTime;
+            const pendingEnd = installTime + ONE_DAY_MS;
+            const windowStart = now;
+            const windowEnd = now + ONE_DAY_MS;
+
+            // Overlap exists if (StartA < EndB) and (EndA > StartB)
+            // If the Pending Task starts way in the future (>24h from now), pendingStart >= windowEnd, so returns False.
+            // If the Pending Task was way in the past (missed appointment >24h ago), pendingEnd <= windowStart, so returns False.
+            return (pendingStart < windowEnd) && (pendingEnd > windowStart);
+        }
+        return false;
+      };
+
       // 1. Holter HA (BP) - Total 1 device
       const bpDevices = holters.filter(h => h.type === HolterType.BP);
       const bpActiveCount = bpDevices.filter(h => h.status === HolterStatus.ACTIVE).length;
       const bpPendingCount = bpDevices.filter(h => h.status === HolterStatus.PENDING).length;
-      // Note: Logic for 'maytrong' display only counts currently ACTIVE. 
-      // If a device is PENDING but not installed yet, physically it might be free, but logically reserved.
-      // We'll stick to displaying physical status here, but 'NextFree' handles the logic.
-      const bpFreeCount = bpActiveCount > 0 ? 0 : 1;
+      
+      // Calculate free count based on occupation logic
+      const bpOccupiedCount = bpDevices.filter(isOccupying).length;
+      let bpFreeCount = 1 - bpOccupiedCount;
+      if (bpFreeCount < 0) bpFreeCount = 0;
+      
       const bpNextFree = findNextSlot(bpDevices, 1);
 
       // 2. Holter ECG - Total 2 devices
       const ecgDevices = holters.filter(h => h.type === HolterType.ECG);
       const ecgActiveCount = ecgDevices.filter(h => h.status === HolterStatus.ACTIVE).length;
       const ecgPendingCount = ecgDevices.filter(h => h.status === HolterStatus.PENDING).length;
-      let ecgFreeCount = 2 - ecgActiveCount;
+      
+      // Calculate free count based on occupation logic
+      const ecgOccupiedCount = ecgDevices.filter(isOccupying).length;
+      let ecgFreeCount = 2 - ecgOccupiedCount;
       if (ecgFreeCount < 0) ecgFreeCount = 0;
+
       const ecgNextFree = findNextSlot(ecgDevices, 2);
 
       const computedTracker: TrackerRecord[] = [
