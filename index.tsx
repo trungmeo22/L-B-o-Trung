@@ -1,3 +1,4 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -11,8 +12,8 @@ if (!rootElement) {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js')
-      .then(reg => console.log('SW Registered', reg))
-      .catch(err => console.log('SW Registration Failed', err));
+      .then(reg => console.log('SW Registered with scope:', reg.scope))
+      .catch(err => console.error('SW Registration Failed:', err));
   });
 }
 

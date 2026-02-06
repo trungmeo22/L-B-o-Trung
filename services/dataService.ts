@@ -353,7 +353,7 @@ export const fetchData = async (): Promise<FetchResult> => {
       return { data: normalizedData, isOffline: isFromCache };
 
   } catch (error) {
-      console.error("Firebase fetch error:", error);
+      console.error("Firebase fetch error:", error instanceof Error ? error.message : "Unknown error");
       return { data: INITIAL_DATA, isOffline: true };
   }
 };
@@ -403,7 +403,7 @@ export const loginWithPassword = async (username: string, password: string): Pro
                 }
             }
         } catch (fetchError) {
-            console.error("Warning: Could not fetch custom name from 'nameid'", fetchError);
+            console.error("Warning: Could not fetch custom name from 'nameid'", fetchError instanceof Error ? fetchError.message : "Unknown error");
             // Non-blocking error, continue with default display name
         }
         
@@ -416,7 +416,7 @@ export const loginWithPassword = async (username: string, password: string): Pro
         updateStoredUser(user);
         return user;
     } catch (error: any) {
-        console.error("Login failed", error);
+        console.error("Login failed", error instanceof Error ? error.message : "Unknown error");
         throw error;
     }
 };
@@ -453,7 +453,7 @@ export const syncUserProfile = async (currentUser: User): Promise<User> => {
             }
         }
     } catch (e) {
-        console.error("Error syncing user profile:", e);
+        console.error("Error syncing user profile:", e instanceof Error ? e.message : "Unknown error");
     }
     return currentUser;
 };
